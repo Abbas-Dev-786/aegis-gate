@@ -1,5 +1,5 @@
 import { Dispatch, SetStateAction } from "react";
-import { IDKitRequestWidget, RpContext, orbLegacy } from "@worldcoin/idkit";
+import { IDKitRequestWidget, RpContext, deviceLegacy } from "@worldcoin/idkit";
 
 export interface WorldIdVerificationData {
   proof: string[]; // Updated for v4 compatibility
@@ -45,13 +45,15 @@ export function WorldIdVerification({
       {rpContext ? (
         <>
           <IDKitRequestWidget
-            app_id="app_YOUR_WORLD_ID_APP_ID" // <-- Insert your App ID from Worldcoin Developer Portal
+            app_id={process.env.NEXT_PUBLIC_WORLD_APP_ID as `app_${string}`}
             action="aegisgate-verification"
+            action_description="Verify your humanity for AegisGate"
             rp_context={rpContext}
-            preset={orbLegacy({ signal: walletAddress })}
-            allow_legacy_proofs={true} // Required by World ID 4.0 IDKitRequestConfig
+            preset={deviceLegacy({ signal: "local-election-1" })}
+            allow_legacy_proofs={true}
             handleVerify={verifyProof} // Triggers verification
             onSuccess={handleWorldIdSuccess}
+            onError={(error) => console.log(error)}
             open={isWorldIdOpen}
             onOpenChange={setIsWorldIdOpen}
           />

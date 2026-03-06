@@ -20,7 +20,7 @@ export function BankVerification({
       </label>
       <button
         onClick={() => openPlaid()}
-        // disabled={!worldIdData || !isPlaidReady}
+        disabled={!worldIdData || !isPlaidReady}
         className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
       >
         {plaidToken ? "Bank Verified ✓" : "Connect Bank via Plaid"}
