@@ -18,8 +18,8 @@ const VerificationPayloadSchema = z.object({
   worldIdProof: z.string(),
   worldIdNullifier: z.string(),
   plaidPublicToken: z.string(),
-  worldIdMerkleRoot: z.string(), // <-- NEW
-  worldIdVerificationLevel: z.string(), // <-- NEW
+  worldIdMerkleRoot: z.string(),
+  worldIdVerificationLevel: z.string(),
 });
 type VerificationPayload = z.infer<typeof VerificationPayloadSchema>;
 
@@ -32,7 +32,7 @@ async function initWorkflow(config: any) {
       const data = decodeJson(payload.input) as VerificationPayload;
       const confHttp = new ConfidentialHTTPClient();
 
-      // FIX 1 & 2: Use .result() to build the computation graph.
+      // 1. World ID Verification inside TEE
       const worldIdReq = confHttp.sendRequest(runtime, {
         request: {
           url: "https://developer.world.org/api/v2/verify/{app_id}",
@@ -43,17 +43,40 @@ async function initWorkflow(config: any) {
           bodyString: JSON.stringify({
             nullifier_hash: data.worldIdNullifier,
             proof: data.worldIdProof,
-            merkle_root: data.worldIdMerkleRoot, // <-- NEW
-            verification_level: data.worldIdVerificationLevel, // <-- NEW (e.g., "orb" or "device")
+            merkle_root: data.worldIdMerkleRoot,
+            verification_level: data.worldIdVerificationLevel,
             action: "aegisgate-verification",
-            // For security, bind the proof to the wallet address
             signal_hash: data.walletAddress,
             max_age: 3600,
           }),
         },
       });
-      const worldIdRes = worldIdReq.result(); // Extracts the HTTPResponse reference
+      const worldIdRes = worldIdReq.result();
 
+      // 2. Plaid: Exchange Public Token for Access Token inside TEE
+      const plaidExchangeReq = confHttp.sendRequest(runtime, {
+        request: {
+          url: "https://sandbox.plaid.com/item/public_token/exchange",
+          method: "POST",
+          multiHeaders: {
+            "Content-Type": { values: ["application/json"] },
+          },
+          bodyString: JSON.stringify({
+            client_id: "{{.PLAID_CLIENT_ID}}",
+            secret: "{{.PLAID_SECRET}}",
+            public_token: data.plaidPublicToken, // Send the raw public token from the frontend
+          }),
+        },
+        vaultDonSecrets: [
+          { key: "PLAID_CLIENT_ID", owner: "" },
+          { key: "PLAID_SECRET", owner: "" },
+        ],
+      });
+      const plaidExchangeRes = plaidExchangeReq.result();
+      const plaidExchangeData = decodeJson(plaidExchangeRes.body) as any;
+      const accessToken = plaidExchangeData.access_token;
+
+      // 3. Plaid: Fetch the Bank Balance using the newly minted Access Token
       const plaidReq = confHttp.sendRequest(runtime, {
         request: {
           url: "https://sandbox.plaid.com/accounts/balance/get",
@@ -64,7 +87,7 @@ async function initWorkflow(config: any) {
           bodyString: JSON.stringify({
             client_id: "{{.PLAID_CLIENT_ID}}",
             secret: "{{.PLAID_SECRET}}",
-            access_token: data.plaidPublicToken,
+            access_token: accessToken, // Securely use the minted access token
           }),
         },
         vaultDonSecrets: [
@@ -72,12 +95,12 @@ async function initWorkflow(config: any) {
           { key: "PLAID_SECRET", owner: "" },
         ],
       });
-      const plaidRes = plaidReq.result(); // Extracts the HTTPResponse reference
+      const plaidRes = plaidReq.result();
 
       const worldIdData = decodeJson(worldIdRes.body) as any;
       const plaidData = decodeJson(plaidRes.body) as any;
 
-      runtime.log("Plaid Raw Response: " + plaidRes.body);
+      runtime.log("Plaid Balance Response Received.");
 
       let totalBalance = 0;
       if (plaidData && plaidData.accounts) {
@@ -91,8 +114,8 @@ async function initWorkflow(config: any) {
         worldIdRes.statusCode === 200 && worldIdData.success === true;
       const isAccredited = totalBalance >= 200000;
 
+      // 4. On-Chain Action if Compliant
       if (isHuman && isAccredited) {
-        // Encode the payload for the smart contract
         const callData = encodeFunctionData({
           abi: AegisGate,
           functionName: "updateCompliance",
@@ -111,16 +134,13 @@ async function initWorkflow(config: any) {
 
         const evmClient = new EVMClient(network.chainSelector.selector);
 
-        // FIX 3: Pass an object instead of a raw hex string to satisfy ReportRequest
         const secureReportReq = runtime.report({ report: callData } as any);
 
-        // FIX 4: Call .result() on the report request to extract the Report object
         const writeReq = evmClient.writeReport(runtime, {
-          receiver: "YOUR_AEGISGATE_CONTRACT_ADDRESS", // <-- Insert your Remix contract address here
+          receiver: "YOUR_AEGISGATE_CONTRACT_ADDRESS", // <-- Don't forget to replace this!
           report: secureReportReq.result(),
         });
 
-        // Ensure the write request completes in the execution graph
         writeReq.result();
 
         return {
