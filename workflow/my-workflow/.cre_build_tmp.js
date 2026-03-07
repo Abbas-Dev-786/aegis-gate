@@ -29487,103 +29487,115 @@ var VerificationPayloadSchema = exports_external2.object({
 });
 var http = new HTTPCapability;
 var trigger = http.trigger({});
+function verifyWorldId(runtime2, confHttp, data) {
+  const worldIdReq = confHttp.sendRequest(runtime2, {
+    request: {
+      url: "https://developer.world.org/api/v2/verify/{app_id}",
+      method: "POST",
+      multiHeaders: {
+        "Content-Type": { values: ["application/json"] }
+      },
+      bodyString: JSON.stringify({
+        nullifier_hash: data.worldIdNullifier,
+        proof: data.worldIdProof,
+        merkle_root: data.worldIdMerkleRoot,
+        verification_level: data.worldIdVerificationLevel,
+        action: "aegisgate-verification",
+        signal_hash: data.walletAddress,
+        max_age: 3600
+      })
+    }
+  });
+  const worldIdRes = worldIdReq.result();
+  const worldIdData = decodeJson(worldIdRes.body);
+  return worldIdRes.statusCode === 200 && worldIdData.success === true;
+}
+function exchangePlaidToken(runtime2, confHttp, publicToken) {
+  const plaidExchangeReq = confHttp.sendRequest(runtime2, {
+    request: {
+      url: "https://sandbox.plaid.com/item/public_token/exchange",
+      method: "POST",
+      multiHeaders: {
+        "Content-Type": { values: ["application/json"] }
+      },
+      bodyString: JSON.stringify({
+        client_id: "{{.PLAID_CLIENT_ID}}",
+        secret: "{{.PLAID_SECRET}}",
+        public_token: publicToken
+      })
+    },
+    vaultDonSecrets: [
+      { key: "PLAID_CLIENT_ID", owner: "" },
+      { key: "PLAID_SECRET", owner: "" }
+    ]
+  });
+  const plaidExchangeRes = plaidExchangeReq.result();
+  const plaidExchangeData = decodeJson(plaidExchangeRes.body);
+  return plaidExchangeData.access_token;
+}
+function verifyPlaidBalance(runtime2, confHttp, accessToken) {
+  const plaidReq = confHttp.sendRequest(runtime2, {
+    request: {
+      url: "https://sandbox.plaid.com/accounts/balance/get",
+      method: "POST",
+      multiHeaders: {
+        "Content-Type": { values: ["application/json"] }
+      },
+      bodyString: JSON.stringify({
+        client_id: "{{.PLAID_CLIENT_ID}}",
+        secret: "{{.PLAID_SECRET}}",
+        access_token: accessToken
+      })
+    },
+    vaultDonSecrets: [
+      { key: "PLAID_CLIENT_ID", owner: "" },
+      { key: "PLAID_SECRET", owner: "" }
+    ]
+  });
+  const plaidRes = plaidReq.result();
+  const plaidData = decodeJson(plaidRes.body);
+  runtime2.log("Plaid Balance Response Received.");
+  let totalBalance = 0;
+  if (plaidData && plaidData.accounts) {
+    totalBalance = plaidData.accounts.reduce((acc, curr) => acc + curr.balances.available, 0);
+  }
+  return totalBalance >= 200000;
+}
+function updateComplianceOnChain(runtime2, data) {
+  const callData = encodeFunctionData({
+    abi: AegisGate,
+    functionName: "updateCompliance",
+    args: [
+      data.walletAddress,
+      data.worldIdNullifier,
+      Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60
+    ]
+  });
+  const network248 = getNetwork({
+    chainFamily: "evm",
+    chainSelectorName: "ethereum-testnet-sepolia",
+    isTestnet: true
+  });
+  if (!network248)
+    throw new Error("Network not found");
+  const evmClient = new ClientCapability(network248.chainSelector.selector);
+  const secureReportReq = runtime2.report({ report: callData });
+  const writeReq = evmClient.writeReport(runtime2, {
+    receiver: "YOUR_AEGISGATE_CONTRACT_ADDRESS",
+    report: secureReportReq.result()
+  });
+  writeReq.result();
+}
 async function initWorkflow(config2) {
   return [
     handler(trigger, async (runtime2, payload) => {
       const data = decodeJson(payload.input);
       const confHttp = new ClientCapability2;
-      const worldIdReq = confHttp.sendRequest(runtime2, {
-        request: {
-          url: "https://developer.world.org/api/v2/verify/{app_id}",
-          method: "POST",
-          multiHeaders: {
-            "Content-Type": { values: ["application/json"] }
-          },
-          bodyString: JSON.stringify({
-            nullifier_hash: data.worldIdNullifier,
-            proof: data.worldIdProof,
-            merkle_root: data.worldIdMerkleRoot,
-            verification_level: data.worldIdVerificationLevel,
-            action: "aegisgate-verification",
-            signal_hash: data.walletAddress,
-            max_age: 3600
-          })
-        }
-      });
-      const worldIdRes = worldIdReq.result();
-      const plaidExchangeReq = confHttp.sendRequest(runtime2, {
-        request: {
-          url: "https://sandbox.plaid.com/item/public_token/exchange",
-          method: "POST",
-          multiHeaders: {
-            "Content-Type": { values: ["application/json"] }
-          },
-          bodyString: JSON.stringify({
-            client_id: "{{.PLAID_CLIENT_ID}}",
-            secret: "{{.PLAID_SECRET}}",
-            public_token: data.plaidPublicToken
-          })
-        },
-        vaultDonSecrets: [
-          { key: "PLAID_CLIENT_ID", owner: "" },
-          { key: "PLAID_SECRET", owner: "" }
-        ]
-      });
-      const plaidExchangeRes = plaidExchangeReq.result();
-      const plaidExchangeData = decodeJson(plaidExchangeRes.body);
-      const accessToken = plaidExchangeData.access_token;
-      const plaidReq = confHttp.sendRequest(runtime2, {
-        request: {
-          url: "https://sandbox.plaid.com/accounts/balance/get",
-          method: "POST",
-          multiHeaders: {
-            "Content-Type": { values: ["application/json"] }
-          },
-          bodyString: JSON.stringify({
-            client_id: "{{.PLAID_CLIENT_ID}}",
-            secret: "{{.PLAID_SECRET}}",
-            access_token: accessToken
-          })
-        },
-        vaultDonSecrets: [
-          { key: "PLAID_CLIENT_ID", owner: "" },
-          { key: "PLAID_SECRET", owner: "" }
-        ]
-      });
-      const plaidRes = plaidReq.result();
-      const worldIdData = decodeJson(worldIdRes.body);
-      const plaidData = decodeJson(plaidRes.body);
-      runtime2.log("Plaid Balance Response Received.");
-      let totalBalance = 0;
-      if (plaidData && plaidData.accounts) {
-        totalBalance = plaidData.accounts.reduce((acc, curr) => acc + curr.balances.available, 0);
-      }
-      const isHuman = worldIdRes.statusCode === 200 && worldIdData.success === true;
-      const isAccredited = totalBalance >= 200000;
+      const isHuman = verifyWorldId(runtime2, confHttp, data);
+      const accessToken = exchangePlaidToken(runtime2, confHttp, data.plaidPublicToken);
+      const isAccredited = verifyPlaidBalance(runtime2, confHttp, accessToken);
       if (isHuman && isAccredited) {
-        const callData = encodeFunctionData({
-          abi: AegisGate,
-          functionName: "updateCompliance",
-          args: [
-            data.walletAddress,
-            data.worldIdNullifier,
-            Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60
-          ]
-        });
-        const network248 = getNetwork({
-          chainFamily: "evm",
-          chainSelectorName: "ethereum-testnet-sepolia",
-          isTestnet: true
-        });
-        if (!network248)
-          throw new Error("Network not found");
-        const evmClient = new ClientCapability(network248.chainSelector.selector);
-        const secureReportReq = runtime2.report({ report: callData });
-        const writeReq = evmClient.writeReport(runtime2, {
-          receiver: "YOUR_AEGISGATE_CONTRACT_ADDRESS",
-          report: secureReportReq.result()
-        });
-        writeReq.result();
+        updateComplianceOnChain(runtime2, data);
         return {
           status: "Success - Transaction Mined",
           user: data.walletAddress
