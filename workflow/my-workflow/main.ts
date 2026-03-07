@@ -15,7 +15,7 @@ import { z } from "zod";
 
 const VerificationPayloadSchema = z.object({
   walletAddress: z.string(),
-  worldIdProof: z.string(),
+  worldIdProof: z.array(z.string()),
   worldIdNullifier: z.string(),
   plaidPublicToken: z.string(),
   worldIdMerkleRoot: z.string(),
@@ -33,7 +33,7 @@ function verifyWorldId(
 ): boolean {
   const worldIdReq = confHttp.sendRequest(runtime, {
     request: {
-      url: "https://developer.world.org/api/v2/verify/{app_id}",
+      url: "https://developer.world.org/api/v4/verify/{{.WORLD_APP_ID}}",
       method: "POST",
       multiHeaders: {
         "Content-Type": { values: ["application/json"] },
@@ -43,11 +43,9 @@ function verifyWorldId(
         proof: data.worldIdProof,
         merkle_root: data.worldIdMerkleRoot,
         verification_level: data.worldIdVerificationLevel,
-        action: "aegisgate-verification",
-        signal_hash: data.walletAddress,
-        max_age: 3600,
       }),
     },
+    vaultDonSecrets: [{ key: "WORLD_APP_ID", owner: "" }],
   });
   const worldIdRes = worldIdReq.result();
   const worldIdData = decodeJson(worldIdRes.body) as any;

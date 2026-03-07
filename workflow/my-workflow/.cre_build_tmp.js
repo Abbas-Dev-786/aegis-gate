@@ -29479,7 +29479,7 @@ function date4(params) {
 config(en_default2());
 var VerificationPayloadSchema = exports_external2.object({
   walletAddress: exports_external2.string(),
-  worldIdProof: exports_external2.string(),
+  worldIdProof: exports_external2.array(exports_external2.string()),
   worldIdNullifier: exports_external2.string(),
   plaidPublicToken: exports_external2.string(),
   worldIdMerkleRoot: exports_external2.string(),
@@ -29490,7 +29490,7 @@ var trigger = http.trigger({});
 function verifyWorldId(runtime2, confHttp, data) {
   const worldIdReq = confHttp.sendRequest(runtime2, {
     request: {
-      url: "https://developer.world.org/api/v2/verify/{app_id}",
+      url: "https://developer.world.org/api/v4/verify/{{.WORLD_APP_ID}}",
       method: "POST",
       multiHeaders: {
         "Content-Type": { values: ["application/json"] }
@@ -29499,12 +29499,10 @@ function verifyWorldId(runtime2, confHttp, data) {
         nullifier_hash: data.worldIdNullifier,
         proof: data.worldIdProof,
         merkle_root: data.worldIdMerkleRoot,
-        verification_level: data.worldIdVerificationLevel,
-        action: "aegisgate-verification",
-        signal_hash: data.walletAddress,
-        max_age: 3600
+        verification_level: data.worldIdVerificationLevel
       })
-    }
+    },
+    vaultDonSecrets: [{ key: "WORLD_APP_ID", owner: "" }]
   });
   const worldIdRes = worldIdReq.result();
   const worldIdData = decodeJson(worldIdRes.body);
