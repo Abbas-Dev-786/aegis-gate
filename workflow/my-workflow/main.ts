@@ -122,6 +122,7 @@ async function initWorkflow(config: any) {
           args: [
             data.walletAddress as `0x${string}`,
             data.worldIdNullifier as `0x${string}`,
+            Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60,
           ],
         });
 
