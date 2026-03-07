@@ -15,8 +15,9 @@ import { z } from "zod";
 
 const VerificationPayloadSchema = z.object({
   walletAddress: z.string(),
-  worldIdProof: z.array(z.string()),
+  worldIdProof: z.string(),
   worldIdNullifier: z.string(),
+  worldIdNonce: z.string(),
   plaidPublicToken: z.string(),
   worldIdMerkleRoot: z.string(),
   worldIdVerificationLevel: z.string(),
@@ -33,22 +34,32 @@ function verifyWorldId(
 ): boolean {
   const worldIdReq = confHttp.sendRequest(runtime, {
     request: {
-      url: "https://developer.world.org/api/v4/verify/{{.WORLD_APP_ID}}",
+      url: "https://developer.world.org/api/v4/verify/{{.WORLD_APP_RP_ID}}",
       method: "POST",
       multiHeaders: {
         "Content-Type": { values: ["application/json"] },
       },
       bodyString: JSON.stringify({
-        nullifier_hash: data.worldIdNullifier,
-        proof: data.worldIdProof,
-        merkle_root: data.worldIdMerkleRoot,
-        verification_level: data.worldIdVerificationLevel,
+        protocol_version: "3.0",
+        nonce: data.worldIdNonce, // Mapped securely from the payload
+        action: "aegisgate-verification",
+        responses: [
+          {
+            identifier: data.worldIdVerificationLevel, // e.g. "orb" or "device"
+            merkle_root: data.worldIdMerkleRoot,
+            nullifier: data.worldIdNullifier,
+            proof: data.worldIdProof,
+          },
+        ],
       }),
     },
-    vaultDonSecrets: [{ key: "WORLD_APP_ID", owner: "" }],
+    vaultDonSecrets: [{ key: "WORLD_APP_RP_ID", owner: "" }],
   });
   const worldIdRes = worldIdReq.result();
   const worldIdData = decodeJson(worldIdRes.body) as any;
+
+  console.log("World ID Response:", JSON.stringify(worldIdData));
+
   return worldIdRes.statusCode === 200 && worldIdData.success === true;
 }
 

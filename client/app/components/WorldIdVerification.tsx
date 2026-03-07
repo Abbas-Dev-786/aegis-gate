@@ -2,10 +2,11 @@ import { Dispatch, SetStateAction } from "react";
 import { IDKitRequestWidget, RpContext, deviceLegacy } from "@worldcoin/idkit";
 
 export interface WorldIdVerificationData {
-  proof: string[]; // Updated for v4 compatibility
+  proof: string;
   nullifier_hash: string;
   merkle_root: string;
   verification_level: string;
+  nonce: string;
 }
 
 interface WorldIdVerificationProps {

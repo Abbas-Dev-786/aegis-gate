@@ -25,6 +25,10 @@ export default function AegisGateFrontend() {
   const [plaidLinkToken, setPlaidLinkToken] = useState<string | null>(null);
   const [status, setStatus] = useState("");
 
+  // States for the popup modal
+  const [showPopup, setShowPopup] = useState(false);
+  const [simulationPayload, setSimulationPayload] = useState("");
+
   // ==========================================
   // 1. World ID Integration (Strict Context Fetch)
   // ==========================================
@@ -51,12 +55,15 @@ export default function AegisGateFrontend() {
     fetchSecureContext();
   }, []);
 
-  const handleWorldIdSuccess = (result: any) => {
+  const handleWorldIdSuccess = (response: any) => {
+    const [result] = response.responses;
+    console.log("World ID Success:", result);
     setWorldIdData({
       proof: result.proof,
-      nullifier_hash: result.nullifier_hash,
+      nullifier_hash: result.nullifier,
       merkle_root: result.merkle_root,
-      verification_level: result.verification_level,
+      verification_level: result.identifier,
+      nonce: response.nonce,
     });
     setStatus("World ID Verified! Human confirmed.");
   };
@@ -113,46 +120,29 @@ export default function AegisGateFrontend() {
   });
 
   // ==========================================
-  // 3. Submit to Chainlink CRE Enclave
+  // 3. Generate Payload & Show Popup
   // ==========================================
   const submitToCRE = async () => {
-    setStatus("Submitting to AegisGate CRE Enclave...");
+    setStatus("Generating Payload for CRE Simulator...");
 
-    if (!worldIdData) return;
+    if (!worldIdData) {
+      setStatus("Please complete World ID verification first.");
+      return;
+    }
 
-    // This payload perfectly matches the V2 World ID curl requirements in your CRE workflow
     const payload = {
       walletAddress: walletAddress,
       worldIdProof: worldIdData.proof,
       worldIdNullifier: worldIdData.nullifier_hash,
       worldIdMerkleRoot: worldIdData.merkle_root,
       worldIdVerificationLevel: worldIdData.verification_level,
+      worldIdNonce: worldIdData.nonce,
       plaidPublicToken: plaidToken,
     };
 
-    try {
-      // Replace with your actual CRE HTTP Trigger URL
-      const response = await fetch("YOUR_CRE_WORKFLOW_HTTP_URL", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const result = await response.json();
-
-      if (response.ok) {
-        setStatus(
-          `Success! Transaction Mined. CRE Enclave Response: ${JSON.stringify(result)}`,
-        );
-      } else {
-        setStatus(
-          `Verification Failed by CRE Enclave: ${JSON.stringify(result)}`,
-        );
-      }
-    } catch (error) {
-      console.error(error);
-      setStatus("Error connecting to CRE Workflow.");
-    }
+    setSimulationPayload(JSON.stringify(payload, null, 2));
+    setShowPopup(true);
+    setStatus("Payload generated. Please copy and run in terminal.");
   };
 
   return (
@@ -193,6 +183,38 @@ export default function AegisGateFrontend() {
           </div>
         )}
       </div>
+
+      {showPopup && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+          <div className="bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-2xl">
+            <h2 className="text-2xl font-bold mb-4">CRE Simulation Payload</h2>
+            <p className="text-gray-400 mb-4">
+              Copy this JSON payload and paste it when prompted by the
+              Simulator, or use it with your CLI.
+            </p>
+            <pre className="bg-gray-900 p-4 rounded text-sm text-green-400 overflow-auto max-h-96 whitespace-pre-wrap">
+              {simulationPayload}
+            </pre>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(simulationPayload);
+                  setStatus("Payload copied to clipboard.");
+                }}
+                className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+              >
+                Copy to Clipboard
+              </button>
+              <button
+                onClick={() => setShowPopup(false)}
+                className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

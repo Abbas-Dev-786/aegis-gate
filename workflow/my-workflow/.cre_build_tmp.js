@@ -29479,8 +29479,9 @@ function date4(params) {
 config(en_default2());
 var VerificationPayloadSchema = exports_external2.object({
   walletAddress: exports_external2.string(),
-  worldIdProof: exports_external2.array(exports_external2.string()),
+  worldIdProof: exports_external2.string(),
   worldIdNullifier: exports_external2.string(),
+  worldIdNonce: exports_external2.string(),
   plaidPublicToken: exports_external2.string(),
   worldIdMerkleRoot: exports_external2.string(),
   worldIdVerificationLevel: exports_external2.string()
@@ -29490,22 +29491,30 @@ var trigger = http.trigger({});
 function verifyWorldId(runtime2, confHttp, data) {
   const worldIdReq = confHttp.sendRequest(runtime2, {
     request: {
-      url: "https://developer.world.org/api/v4/verify/{{.WORLD_APP_ID}}",
+      url: "https://developer.world.org/api/v4/verify/{{.WORLD_APP_RP_ID}}",
       method: "POST",
       multiHeaders: {
         "Content-Type": { values: ["application/json"] }
       },
       bodyString: JSON.stringify({
-        nullifier_hash: data.worldIdNullifier,
-        proof: data.worldIdProof,
-        merkle_root: data.worldIdMerkleRoot,
-        verification_level: data.worldIdVerificationLevel
+        protocol_version: "3.0",
+        nonce: data.worldIdNonce,
+        action: "aegisgate-verification",
+        responses: [
+          {
+            identifier: data.worldIdVerificationLevel,
+            merkle_root: data.worldIdMerkleRoot,
+            nullifier: data.worldIdNullifier,
+            proof: data.worldIdProof
+          }
+        ]
       })
     },
-    vaultDonSecrets: [{ key: "WORLD_APP_ID", owner: "" }]
+    vaultDonSecrets: [{ key: "WORLD_APP_RP_ID", owner: "" }]
   });
   const worldIdRes = worldIdReq.result();
   const worldIdData = decodeJson(worldIdRes.body);
+  console.log("World ID Response:", JSON.stringify(worldIdData));
   return worldIdRes.statusCode === 200 && worldIdData.success === true;
 }
 function exchangePlaidToken(runtime2, confHttp, publicToken) {
