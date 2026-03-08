@@ -1,4 +1,9 @@
 {
-  "aegisGateAddress": "0x73C68bc2635Aa369Ccb31B7a354866Ba9CA1bAbD",
-  "chainName": "ethereum-testnet-sepolia"
+  "evms": [
+    {
+      "aegisGateAddress": "0x73C68bc2635Aa369Ccb31B7a354866Ba9CA1bAbD",
+      "chainName": "ethereum-testnet-sepolia",
+      "gasLimit": "500000"
+    }
+  ]
 }

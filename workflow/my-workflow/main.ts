@@ -7,23 +7,35 @@ import {
   EVMClient,
   decodeJson,
   getNetwork,
-  prepareReportRequest,
   encodeCallMsg,
   bytesToHex,
+  hexToBase64,
   LAST_FINALIZED_BLOCK_NUMBER,
   type Runtime,
   type HTTPPayload,
 } from "@chainlink/cre-sdk";
-import { encodeFunctionData, decodeFunctionResult, zeroAddress } from "viem";
+import {
+  encodeFunctionData,
+  decodeFunctionResult,
+  encodeAbiParameters,
+  parseAbiParameters,
+  zeroAddress,
+} from "viem";
 import { z } from "zod";
 
 // ============================================================
-// Configuration Schema
+// Configuration Schema (follows official CRE evms[] pattern)
 // ============================================================
 
-const ConfigSchema = z.object({
+const EvmConfigSchema = z.object({
   aegisGateAddress: z.string(),
   chainName: z.string(),
+  gasLimit: z.string(),
+});
+type EvmConfig = z.infer<typeof EvmConfigSchema>;
+
+const ConfigSchema = z.object({
+  evms: z.array(EvmConfigSchema),
 });
 type Config = z.infer<typeof ConfigSchema>;
 
@@ -52,21 +64,6 @@ const trigger = http.trigger({});
 const WORLD_APP_RP_ID_NAME = "WORLD_APP_RP_ID";
 const PLAID_CLIENT_ID_NAME = "PLAID_CLIENT_ID";
 const PLAID_SECRET_NAME = "PLAID_SECRET";
-
-// ============================================================
-// Helper: Get EVM client for the configured chain
-// ============================================================
-
-function getEvmClient(config: Config): EVMClient {
-  const network = getNetwork({
-    chainFamily: "evm",
-    chainSelectorName: config.chainName,
-  });
-  if (!network) {
-    throw new Error(`Unknown chain name: ${config.chainName}`);
-  }
-  return new EVMClient(network.chainSelector.selector);
-}
 
 // ============================================================
 // Step 1: Verify World ID (Confidential HTTP → World ID API)
@@ -145,6 +142,7 @@ function exchangePlaidToken(
 function readMinBalanceThreshold(
   runtime: Runtime<Config>,
   evmClient: EVMClient,
+  evmConfig: EvmConfig,
 ): bigint {
   const callData = encodeFunctionData({
     abi: AegisGate,
@@ -155,7 +153,7 @@ function readMinBalanceThreshold(
     .callContract(runtime, {
       call: encodeCallMsg({
         from: zeroAddress,
-        to: runtime.config.aegisGateAddress as `0x${string}`,
+        to: evmConfig.aegisGateAddress as `0x${string}`,
         data: callData,
       }),
       blockNumber: LAST_FINALIZED_BLOCK_NUMBER,
@@ -255,12 +253,13 @@ function extractNullifierHash(data: VerificationPayload): string {
 function updateComplianceOnChain(
   runtime: Runtime<Config>,
   evmClient: EVMClient,
+  evmConfig: EvmConfig,
   data: VerificationPayload,
-) {
+): string {
   const nullifier = extractNullifierHash(data);
 
-  // Generate the TEE attestation report as verification proof.
-  // This cryptographically proves the compliance logic ran inside a TEE.
+  // Build a non-empty verification proof with attestation context.
+  // The contract requires verificationProof.length > 0.
   const attestationData = new TextEncoder().encode(
     JSON.stringify({
       wallet: data.walletAddress,
@@ -271,27 +270,50 @@ function updateComplianceOnChain(
   );
   const verificationProof = bytesToHex(attestationData);
 
-  const callData = encodeFunctionData({
-    abi: AegisGate,
-    functionName: "updateCompliance",
-    args: [
-      BigInt(nullifier), // uint256 nullifierHash
-      data.walletAddress as `0x${string}`, // address wallet
-      true, // bool isAccredited
-      verificationProof as `0x${string}`, // bytes verificationProof (non-empty)
-      BigInt(Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60), // uint256 expirationTime (1 year)
+  // ABI-encode the parameters for updateCompliance(uint256,address,bool,bytes,uint256)
+  const reportData = encodeAbiParameters(
+    parseAbiParameters(
+      "uint256 nullifierHash, address wallet, bool isAccredited, bytes verificationProof, uint256 expirationTime",
+    ),
+    [
+      BigInt(nullifier),
+      data.walletAddress as `0x${string}`,
+      true,
+      verificationProof as `0x${string}`,
+      BigInt(Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60),
     ],
-  });
+  );
 
-  const secureReportReq = runtime.report(prepareReportRequest(callData));
+  runtime.log(
+    `Writing compliance report for wallet ${data.walletAddress}, nullifier ${nullifier.slice(0, 14)}…`,
+  );
 
-  const writeReq = evmClient.writeReport(runtime, {
-    receiver: runtime.config.aegisGateAddress as `0x${string}`,
-    report: secureReportReq.result(),
-  });
+  // Step 1: Generate a signed report using the consensus capability
+  const reportResponse = runtime
+    .report({
+      encodedPayload: hexToBase64(reportData),
+      encoderName: "evm",
+      signingAlgo: "ecdsa",
+      hashingAlgo: "keccak256",
+    })
+    .result();
 
-  writeReq.result();
-  runtime.log(`Compliance updated on-chain for wallet ${data.walletAddress}.`);
+  // Step 2: Submit the signed report to the AegisGate contract
+  const writeResult = evmClient
+    .writeReport(runtime, {
+      receiver: evmConfig.aegisGateAddress as `0x${string}`,
+      report: reportResponse,
+      gasConfig: {
+        gasLimit: evmConfig.gasLimit,
+      },
+    })
+    .result();
+
+  const txHash = bytesToHex(writeResult.txHash || new Uint8Array(32));
+  runtime.log(`Write report transaction succeeded: ${txHash}`);
+  runtime.log(`View transaction at https://sepolia.etherscan.io/tx/${txHash}`);
+
+  return txHash;
 }
 
 // ============================================================
@@ -305,10 +327,23 @@ async function initWorkflow(config: Config) {
       (
         runtime: Runtime<Config>,
         payload: HTTPPayload,
-      ): { status: string; user?: string } => {
+      ): { status: string; user?: string; txHash?: string } => {
         const data = decodeJson(payload.input) as VerificationPayload;
         const confHttp = new ConfidentialHTTPClient();
-        const evmClient = getEvmClient(config);
+
+        // Get the first EVM configuration from the list
+        const evmConfig = runtime.config.evms[0];
+
+        // Convert chain name to chain selector
+        const network = getNetwork({
+          chainFamily: "evm",
+          chainSelectorName: evmConfig.chainName,
+        });
+        if (!network) {
+          throw new Error(`Unknown chain name: ${evmConfig.chainName}`);
+        }
+
+        const evmClient = new EVMClient(network.chainSelector.selector);
 
         runtime.log("=== AegisGate Compliance Verification Started ===");
         runtime.log(`Wallet: ${data.walletAddress}`);
@@ -332,11 +367,14 @@ async function initWorkflow(config: Config) {
         runtime.log("[2/4] Plaid token exchanged ✓");
 
         // Step 3: Read the minimum balance threshold from the contract
-        runtime.log("[3/4] Reading on-chain threshold...");
-        const minThreshold = readMinBalanceThreshold(runtime, evmClient);
+        runtime.log("[3/4] Reading on-chain threshold & verifying balance...");
+        const minThreshold = readMinBalanceThreshold(
+          runtime,
+          evmClient,
+          evmConfig,
+        );
 
-        // Step 4: Verify financial standing against on-chain threshold
-        runtime.log("[3/4] Verifying Plaid balance...");
+        // Verify financial standing against on-chain threshold
         const isAccredited = verifyPlaidBalance(
           runtime,
           confHttp,
@@ -349,9 +387,14 @@ async function initWorkflow(config: Config) {
         }
         runtime.log("[3/4] Balance verification passed ✓");
 
-        // Step 5: Write compliance attestation on-chain
+        // Step 4: Write compliance attestation on-chain
         runtime.log("[4/4] Writing compliance on-chain...");
-        updateComplianceOnChain(runtime, evmClient, data);
+        const txHash = updateComplianceOnChain(
+          runtime,
+          evmClient,
+          evmConfig,
+          data,
+        );
         runtime.log("[4/4] Compliance updated on-chain ✓");
 
         runtime.log("=== AegisGate Compliance Verification Complete ===");
@@ -359,6 +402,7 @@ async function initWorkflow(config: Config) {
         return {
           status: "Success - Compliance Verified",
           user: data.walletAddress,
+          txHash,
         };
       },
     ),
