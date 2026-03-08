@@ -197,18 +197,62 @@ var init_base = __esm(() => {
     }
   };
 });
+var AbiDecodingDataSizeTooSmallError;
+var AbiDecodingZeroDataError;
 var AbiEncodingArrayLengthMismatchError;
 var AbiEncodingBytesSizeMismatchError;
 var AbiEncodingLengthMismatchError;
 var AbiFunctionNotFoundError;
+var AbiFunctionOutputsNotFoundError;
 var AbiItemAmbiguityError;
 var InvalidAbiEncodingTypeError;
+var InvalidAbiDecodingTypeError;
 var InvalidArrayError;
 var InvalidDefinitionTypeError;
 var init_abi = __esm(() => {
   init_formatAbiItem2();
   init_size();
   init_base();
+  AbiDecodingDataSizeTooSmallError = class AbiDecodingDataSizeTooSmallError2 extends BaseError {
+    constructor({ data, params, size: size2 }) {
+      super([`Data size of ${size2} bytes is too small for given parameters.`].join(`
+`), {
+        metaMessages: [
+          `Params: (${formatAbiParams(params, { includeName: true })})`,
+          `Data:   ${data} (${size2} bytes)`
+        ],
+        name: "AbiDecodingDataSizeTooSmallError"
+      });
+      Object.defineProperty(this, "data", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      Object.defineProperty(this, "params", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      Object.defineProperty(this, "size", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      this.data = data;
+      this.params = params;
+      this.size = size2;
+    }
+  };
+  AbiDecodingZeroDataError = class AbiDecodingZeroDataError2 extends BaseError {
+    constructor() {
+      super('Cannot decode zero data ("0x") with ABI parameters.', {
+        name: "AbiDecodingZeroDataError"
+      });
+    }
+  };
   AbiEncodingArrayLengthMismatchError = class AbiEncodingArrayLengthMismatchError2 extends BaseError {
     constructor({ expectedLength, givenLength, type }) {
       super([
@@ -246,6 +290,19 @@ var init_abi = __esm(() => {
       });
     }
   };
+  AbiFunctionOutputsNotFoundError = class AbiFunctionOutputsNotFoundError2 extends BaseError {
+    constructor(functionName, { docsPath }) {
+      super([
+        `Function "${functionName}" does not contain any \`outputs\` on ABI.`,
+        "Cannot decode function result without knowing what the parameter types are.",
+        "Make sure you are using the correct ABI and that the function exists on it."
+      ].join(`
+`), {
+        docsPath,
+        name: "AbiFunctionOutputsNotFoundError"
+      });
+    }
+  };
   AbiItemAmbiguityError = class AbiItemAmbiguityError2 extends BaseError {
     constructor(x, y) {
       super("Found ambiguous types in overloaded ABI items.", {
@@ -267,6 +324,15 @@ var init_abi = __esm(() => {
         "Please provide a valid ABI type."
       ].join(`
 `), { docsPath, name: "InvalidAbiEncodingType" });
+    }
+  };
+  InvalidAbiDecodingTypeError = class InvalidAbiDecodingTypeError2 extends BaseError {
+    constructor(type, { docsPath }) {
+      super([
+        `Type "${type}" is not a valid decoding type.`,
+        "Please provide a valid ABI type."
+      ].join(`
+`), { docsPath, name: "InvalidAbiDecodingType" });
     }
   };
   InvalidArrayError = class InvalidArrayError2 extends BaseError {
@@ -339,6 +405,7 @@ var init_pad = __esm(() => {
   init_data();
 });
 var IntegerOutOfRangeError;
+var InvalidBytesBooleanError;
 var SizeOverflowError;
 var init_encoding = __esm(() => {
   init_base();
@@ -347,18 +414,68 @@ var init_encoding = __esm(() => {
       super(`Number "${value2}" is not in safe ${size2 ? `${size2 * 8}-bit ${signed ? "signed" : "unsigned"} ` : ""}integer range ${max ? `(${min} to ${max})` : `(above ${min})`}`, { name: "IntegerOutOfRangeError" });
     }
   };
+  InvalidBytesBooleanError = class InvalidBytesBooleanError2 extends BaseError {
+    constructor(bytes) {
+      super(`Bytes value "${bytes}" is not a valid boolean. The bytes array must contain a single byte of either a 0 or 1 value.`, {
+        name: "InvalidBytesBooleanError"
+      });
+    }
+  };
   SizeOverflowError = class SizeOverflowError2 extends BaseError {
     constructor({ givenSize, maxSize }) {
       super(`Size cannot exceed ${maxSize} bytes. Given size: ${givenSize} bytes.`, { name: "SizeOverflowError" });
     }
   };
 });
+function trim(hexOrBytes, { dir = "left" } = {}) {
+  let data = typeof hexOrBytes === "string" ? hexOrBytes.replace("0x", "") : hexOrBytes;
+  let sliceLength = 0;
+  for (let i2 = 0;i2 < data.length - 1; i2++) {
+    if (data[dir === "left" ? i2 : data.length - i2 - 1].toString() === "0")
+      sliceLength++;
+    else
+      break;
+  }
+  data = dir === "left" ? data.slice(sliceLength) : data.slice(0, data.length - sliceLength);
+  if (typeof hexOrBytes === "string") {
+    if (data.length === 1 && dir === "right")
+      data = `${data}0`;
+    return `0x${data.length % 2 === 1 ? `0${data}` : data}`;
+  }
+  return data;
+}
 function assertSize2(hexOrBytes, { size: size2 }) {
   if (size(hexOrBytes) > size2)
     throw new SizeOverflowError({
       givenSize: size(hexOrBytes),
       maxSize: size2
     });
+}
+function hexToBigInt(hex, opts = {}) {
+  const { signed } = opts;
+  if (opts.size)
+    assertSize2(hex, { size: opts.size });
+  const value2 = BigInt(hex);
+  if (!signed)
+    return value2;
+  const size2 = (hex.length - 2) / 2;
+  const max = (1n << BigInt(size2) * 8n - 1n) - 1n;
+  if (value2 <= max)
+    return value2;
+  return value2 - BigInt(`0x${"f".padStart(size2 * 2, "f")}`) - 1n;
+}
+function hexToNumber(hex, opts = {}) {
+  const value2 = hexToBigInt(hex, opts);
+  const number = Number(value2);
+  if (!Number.isSafeInteger(number))
+    throw new IntegerOutOfRangeError({
+      max: `${Number.MAX_SAFE_INTEGER}`,
+      min: `${Number.MIN_SAFE_INTEGER}`,
+      signed: opts.signed,
+      size: opts.size,
+      value: `${value2}n`
+    });
+  return number;
 }
 var init_fromHex = __esm(() => {
   init_encoding();
@@ -372,7 +489,7 @@ function toHex(value2, opts = {}) {
   }
   if (typeof value2 === "boolean")
     return boolToHex(value2, opts);
-  return bytesToHex(value2, opts);
+  return bytesToHex2(value2, opts);
 }
 function boolToHex(value2, opts = {}) {
   const hex = `0x${Number(value2)}`;
@@ -382,7 +499,7 @@ function boolToHex(value2, opts = {}) {
   }
   return hex;
 }
-function bytesToHex(value2, opts = {}) {
+function bytesToHex2(value2, opts = {}) {
   let string = "";
   for (let i2 = 0;i2 < value2.length; i2++) {
     string += hexes[value2[i2]];
@@ -424,7 +541,7 @@ function numberToHex(value_, opts = {}) {
 }
 function stringToHex(value_, opts = {}) {
   const value2 = encoder.encode(value_);
-  return bytesToHex(value2, opts);
+  return bytesToHex2(value2, opts);
 }
 var hexes;
 var encoder;
@@ -1443,6 +1560,457 @@ function encodeFunctionData(parameters) {
 var init_encodeFunctionData = __esm(() => {
   init_encodeAbiParameters();
   init_prepareEncodeFunctionData();
+});
+var NegativeOffsetError;
+var PositionOutOfBoundsError;
+var RecursiveReadLimitExceededError;
+var init_cursor = __esm(() => {
+  init_base();
+  NegativeOffsetError = class NegativeOffsetError2 extends BaseError {
+    constructor({ offset }) {
+      super(`Offset \`${offset}\` cannot be negative.`, {
+        name: "NegativeOffsetError"
+      });
+    }
+  };
+  PositionOutOfBoundsError = class PositionOutOfBoundsError2 extends BaseError {
+    constructor({ length, position }) {
+      super(`Position \`${position}\` is out of bounds (\`0 < position < ${length}\`).`, { name: "PositionOutOfBoundsError" });
+    }
+  };
+  RecursiveReadLimitExceededError = class RecursiveReadLimitExceededError2 extends BaseError {
+    constructor({ count, limit }) {
+      super(`Recursive read limit of \`${limit}\` exceeded (recursive read count: \`${count}\`).`, { name: "RecursiveReadLimitExceededError" });
+    }
+  };
+});
+function createCursor(bytes, { recursiveReadLimit = 8192 } = {}) {
+  const cursor = Object.create(staticCursor);
+  cursor.bytes = bytes;
+  cursor.dataView = new DataView(bytes.buffer ?? bytes, bytes.byteOffset, bytes.byteLength);
+  cursor.positionReadCount = new Map;
+  cursor.recursiveReadLimit = recursiveReadLimit;
+  return cursor;
+}
+var staticCursor;
+var init_cursor2 = __esm(() => {
+  init_cursor();
+  staticCursor = {
+    bytes: new Uint8Array,
+    dataView: new DataView(new ArrayBuffer(0)),
+    position: 0,
+    positionReadCount: new Map,
+    recursiveReadCount: 0,
+    recursiveReadLimit: Number.POSITIVE_INFINITY,
+    assertReadLimit() {
+      if (this.recursiveReadCount >= this.recursiveReadLimit)
+        throw new RecursiveReadLimitExceededError({
+          count: this.recursiveReadCount + 1,
+          limit: this.recursiveReadLimit
+        });
+    },
+    assertPosition(position) {
+      if (position < 0 || position > this.bytes.length - 1)
+        throw new PositionOutOfBoundsError({
+          length: this.bytes.length,
+          position
+        });
+    },
+    decrementPosition(offset) {
+      if (offset < 0)
+        throw new NegativeOffsetError({ offset });
+      const position = this.position - offset;
+      this.assertPosition(position);
+      this.position = position;
+    },
+    getReadCount(position) {
+      return this.positionReadCount.get(position || this.position) || 0;
+    },
+    incrementPosition(offset) {
+      if (offset < 0)
+        throw new NegativeOffsetError({ offset });
+      const position = this.position + offset;
+      this.assertPosition(position);
+      this.position = position;
+    },
+    inspectByte(position_) {
+      const position = position_ ?? this.position;
+      this.assertPosition(position);
+      return this.bytes[position];
+    },
+    inspectBytes(length, position_) {
+      const position = position_ ?? this.position;
+      this.assertPosition(position + length - 1);
+      return this.bytes.subarray(position, position + length);
+    },
+    inspectUint8(position_) {
+      const position = position_ ?? this.position;
+      this.assertPosition(position);
+      return this.bytes[position];
+    },
+    inspectUint16(position_) {
+      const position = position_ ?? this.position;
+      this.assertPosition(position + 1);
+      return this.dataView.getUint16(position);
+    },
+    inspectUint24(position_) {
+      const position = position_ ?? this.position;
+      this.assertPosition(position + 2);
+      return (this.dataView.getUint16(position) << 8) + this.dataView.getUint8(position + 2);
+    },
+    inspectUint32(position_) {
+      const position = position_ ?? this.position;
+      this.assertPosition(position + 3);
+      return this.dataView.getUint32(position);
+    },
+    pushByte(byte) {
+      this.assertPosition(this.position);
+      this.bytes[this.position] = byte;
+      this.position++;
+    },
+    pushBytes(bytes) {
+      this.assertPosition(this.position + bytes.length - 1);
+      this.bytes.set(bytes, this.position);
+      this.position += bytes.length;
+    },
+    pushUint8(value2) {
+      this.assertPosition(this.position);
+      this.bytes[this.position] = value2;
+      this.position++;
+    },
+    pushUint16(value2) {
+      this.assertPosition(this.position + 1);
+      this.dataView.setUint16(this.position, value2);
+      this.position += 2;
+    },
+    pushUint24(value2) {
+      this.assertPosition(this.position + 2);
+      this.dataView.setUint16(this.position, value2 >> 8);
+      this.dataView.setUint8(this.position + 2, value2 & ~4294967040);
+      this.position += 3;
+    },
+    pushUint32(value2) {
+      this.assertPosition(this.position + 3);
+      this.dataView.setUint32(this.position, value2);
+      this.position += 4;
+    },
+    readByte() {
+      this.assertReadLimit();
+      this._touch();
+      const value2 = this.inspectByte();
+      this.position++;
+      return value2;
+    },
+    readBytes(length, size2) {
+      this.assertReadLimit();
+      this._touch();
+      const value2 = this.inspectBytes(length);
+      this.position += size2 ?? length;
+      return value2;
+    },
+    readUint8() {
+      this.assertReadLimit();
+      this._touch();
+      const value2 = this.inspectUint8();
+      this.position += 1;
+      return value2;
+    },
+    readUint16() {
+      this.assertReadLimit();
+      this._touch();
+      const value2 = this.inspectUint16();
+      this.position += 2;
+      return value2;
+    },
+    readUint24() {
+      this.assertReadLimit();
+      this._touch();
+      const value2 = this.inspectUint24();
+      this.position += 3;
+      return value2;
+    },
+    readUint32() {
+      this.assertReadLimit();
+      this._touch();
+      const value2 = this.inspectUint32();
+      this.position += 4;
+      return value2;
+    },
+    get remaining() {
+      return this.bytes.length - this.position;
+    },
+    setPosition(position) {
+      const oldPosition = this.position;
+      this.assertPosition(position);
+      this.position = position;
+      return () => this.position = oldPosition;
+    },
+    _touch() {
+      if (this.recursiveReadLimit === Number.POSITIVE_INFINITY)
+        return;
+      const count = this.getReadCount();
+      this.positionReadCount.set(this.position, count + 1);
+      if (count > 0)
+        this.recursiveReadCount++;
+    }
+  };
+});
+function bytesToBigInt(bytes, opts = {}) {
+  if (typeof opts.size !== "undefined")
+    assertSize2(bytes, { size: opts.size });
+  const hex = bytesToHex2(bytes, opts);
+  return hexToBigInt(hex, opts);
+}
+function bytesToBool(bytes_, opts = {}) {
+  let bytes = bytes_;
+  if (typeof opts.size !== "undefined") {
+    assertSize2(bytes, { size: opts.size });
+    bytes = trim(bytes);
+  }
+  if (bytes.length > 1 || bytes[0] > 1)
+    throw new InvalidBytesBooleanError(bytes);
+  return Boolean(bytes[0]);
+}
+function bytesToNumber(bytes, opts = {}) {
+  if (typeof opts.size !== "undefined")
+    assertSize2(bytes, { size: opts.size });
+  const hex = bytesToHex2(bytes, opts);
+  return hexToNumber(hex, opts);
+}
+function bytesToString(bytes_, opts = {}) {
+  let bytes = bytes_;
+  if (typeof opts.size !== "undefined") {
+    assertSize2(bytes, { size: opts.size });
+    bytes = trim(bytes, { dir: "right" });
+  }
+  return new TextDecoder().decode(bytes);
+}
+var init_fromBytes = __esm(() => {
+  init_encoding();
+  init_fromHex();
+  init_toHex();
+});
+function decodeAbiParameters(params, data) {
+  const bytes = typeof data === "string" ? hexToBytes2(data) : data;
+  const cursor = createCursor(bytes);
+  if (size(bytes) === 0 && params.length > 0)
+    throw new AbiDecodingZeroDataError;
+  if (size(data) && size(data) < 32)
+    throw new AbiDecodingDataSizeTooSmallError({
+      data: typeof data === "string" ? data : bytesToHex2(data),
+      params,
+      size: size(data)
+    });
+  let consumed = 0;
+  const values = [];
+  for (let i2 = 0;i2 < params.length; ++i2) {
+    const param = params[i2];
+    cursor.setPosition(consumed);
+    const [data2, consumed_] = decodeParameter(cursor, param, {
+      staticPosition: 0
+    });
+    consumed += consumed_;
+    values.push(data2);
+  }
+  return values;
+}
+function decodeParameter(cursor, param, { staticPosition }) {
+  const arrayComponents = getArrayComponents(param.type);
+  if (arrayComponents) {
+    const [length, type] = arrayComponents;
+    return decodeArray(cursor, { ...param, type }, { length, staticPosition });
+  }
+  if (param.type === "tuple")
+    return decodeTuple(cursor, param, { staticPosition });
+  if (param.type === "address")
+    return decodeAddress(cursor);
+  if (param.type === "bool")
+    return decodeBool(cursor);
+  if (param.type.startsWith("bytes"))
+    return decodeBytes(cursor, param, { staticPosition });
+  if (param.type.startsWith("uint") || param.type.startsWith("int"))
+    return decodeNumber(cursor, param);
+  if (param.type === "string")
+    return decodeString(cursor, { staticPosition });
+  throw new InvalidAbiDecodingTypeError(param.type, {
+    docsPath: "/docs/contract/decodeAbiParameters"
+  });
+}
+function decodeAddress(cursor) {
+  const value2 = cursor.readBytes(32);
+  return [checksumAddress(bytesToHex2(sliceBytes(value2, -20))), 32];
+}
+function decodeArray(cursor, param, { length, staticPosition }) {
+  if (!length) {
+    const offset = bytesToNumber(cursor.readBytes(sizeOfOffset));
+    const start = staticPosition + offset;
+    const startOfData = start + sizeOfLength;
+    cursor.setPosition(start);
+    const length2 = bytesToNumber(cursor.readBytes(sizeOfLength));
+    const dynamicChild = hasDynamicChild(param);
+    let consumed2 = 0;
+    const value3 = [];
+    for (let i2 = 0;i2 < length2; ++i2) {
+      cursor.setPosition(startOfData + (dynamicChild ? i2 * 32 : consumed2));
+      const [data, consumed_] = decodeParameter(cursor, param, {
+        staticPosition: startOfData
+      });
+      consumed2 += consumed_;
+      value3.push(data);
+    }
+    cursor.setPosition(staticPosition + 32);
+    return [value3, 32];
+  }
+  if (hasDynamicChild(param)) {
+    const offset = bytesToNumber(cursor.readBytes(sizeOfOffset));
+    const start = staticPosition + offset;
+    const value3 = [];
+    for (let i2 = 0;i2 < length; ++i2) {
+      cursor.setPosition(start + i2 * 32);
+      const [data] = decodeParameter(cursor, param, {
+        staticPosition: start
+      });
+      value3.push(data);
+    }
+    cursor.setPosition(staticPosition + 32);
+    return [value3, 32];
+  }
+  let consumed = 0;
+  const value2 = [];
+  for (let i2 = 0;i2 < length; ++i2) {
+    const [data, consumed_] = decodeParameter(cursor, param, {
+      staticPosition: staticPosition + consumed
+    });
+    consumed += consumed_;
+    value2.push(data);
+  }
+  return [value2, consumed];
+}
+function decodeBool(cursor) {
+  return [bytesToBool(cursor.readBytes(32), { size: 32 }), 32];
+}
+function decodeBytes(cursor, param, { staticPosition }) {
+  const [_, size2] = param.type.split("bytes");
+  if (!size2) {
+    const offset = bytesToNumber(cursor.readBytes(32));
+    cursor.setPosition(staticPosition + offset);
+    const length = bytesToNumber(cursor.readBytes(32));
+    if (length === 0) {
+      cursor.setPosition(staticPosition + 32);
+      return ["0x", 32];
+    }
+    const data = cursor.readBytes(length);
+    cursor.setPosition(staticPosition + 32);
+    return [bytesToHex2(data), 32];
+  }
+  const value2 = bytesToHex2(cursor.readBytes(Number.parseInt(size2, 10), 32));
+  return [value2, 32];
+}
+function decodeNumber(cursor, param) {
+  const signed = param.type.startsWith("int");
+  const size2 = Number.parseInt(param.type.split("int")[1] || "256", 10);
+  const value2 = cursor.readBytes(32);
+  return [
+    size2 > 48 ? bytesToBigInt(value2, { signed }) : bytesToNumber(value2, { signed }),
+    32
+  ];
+}
+function decodeTuple(cursor, param, { staticPosition }) {
+  const hasUnnamedChild = param.components.length === 0 || param.components.some(({ name }) => !name);
+  const value2 = hasUnnamedChild ? [] : {};
+  let consumed = 0;
+  if (hasDynamicChild(param)) {
+    const offset = bytesToNumber(cursor.readBytes(sizeOfOffset));
+    const start = staticPosition + offset;
+    for (let i2 = 0;i2 < param.components.length; ++i2) {
+      const component = param.components[i2];
+      cursor.setPosition(start + consumed);
+      const [data, consumed_] = decodeParameter(cursor, component, {
+        staticPosition: start
+      });
+      consumed += consumed_;
+      value2[hasUnnamedChild ? i2 : component?.name] = data;
+    }
+    cursor.setPosition(staticPosition + 32);
+    return [value2, 32];
+  }
+  for (let i2 = 0;i2 < param.components.length; ++i2) {
+    const component = param.components[i2];
+    const [data, consumed_] = decodeParameter(cursor, component, {
+      staticPosition
+    });
+    value2[hasUnnamedChild ? i2 : component?.name] = data;
+    consumed += consumed_;
+  }
+  return [value2, consumed];
+}
+function decodeString(cursor, { staticPosition }) {
+  const offset = bytesToNumber(cursor.readBytes(32));
+  const start = staticPosition + offset;
+  cursor.setPosition(start);
+  const length = bytesToNumber(cursor.readBytes(32));
+  if (length === 0) {
+    cursor.setPosition(staticPosition + 32);
+    return ["", 32];
+  }
+  const data = cursor.readBytes(length, 32);
+  const value2 = bytesToString(trim(data));
+  cursor.setPosition(staticPosition + 32);
+  return [value2, 32];
+}
+function hasDynamicChild(param) {
+  const { type } = param;
+  if (type === "string")
+    return true;
+  if (type === "bytes")
+    return true;
+  if (type.endsWith("[]"))
+    return true;
+  if (type === "tuple")
+    return param.components?.some(hasDynamicChild);
+  const arrayComponents = getArrayComponents(param.type);
+  if (arrayComponents && hasDynamicChild({ ...param, type: arrayComponents[1] }))
+    return true;
+  return false;
+}
+var sizeOfLength = 32;
+var sizeOfOffset = 32;
+var init_decodeAbiParameters = __esm(() => {
+  init_abi();
+  init_getAddress();
+  init_cursor2();
+  init_size();
+  init_slice();
+  init_fromBytes();
+  init_toBytes();
+  init_toHex();
+  init_encodeAbiParameters();
+});
+function decodeFunctionResult(parameters) {
+  const { abi, args, functionName, data } = parameters;
+  let abiItem = abi[0];
+  if (functionName) {
+    const item = getAbiItem({ abi, args, name: functionName });
+    if (!item)
+      throw new AbiFunctionNotFoundError(functionName, { docsPath: docsPath2 });
+    abiItem = item;
+  }
+  if (abiItem.type !== "function")
+    throw new AbiFunctionNotFoundError(undefined, { docsPath: docsPath2 });
+  if (!abiItem.outputs)
+    throw new AbiFunctionOutputsNotFoundError(abiItem.name, { docsPath: docsPath2 });
+  const values = decodeAbiParameters(abiItem.outputs, data);
+  if (values && values.length > 1)
+    return values;
+  if (values && values.length === 1)
+    return values[0];
+  return;
+}
+var docsPath2 = "/docs/contract/decodeFunctionResult";
+var init_decodeFunctionResult = __esm(() => {
+  init_abi();
+  init_decodeAbiParameters();
+  init_getAbiItem();
 });
 var AegisGate = [
   {
@@ -5777,6 +6345,9 @@ var hexToBytes = (hexStr) => {
   }
   return bytes;
 };
+var bytesToHex = (bytes) => {
+  return `0x${Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("")}`;
+};
 var hexToBase64 = (hex) => {
   const cleanHex = hex.startsWith("0x") ? hex.slice(2) : hex;
   if (cleanHex.length === 0) {
@@ -7516,6 +8087,11 @@ var LATEST_BLOCK_NUMBER = {
   absVal: Buffer.from([2]).toString("base64"),
   sign: "-1"
 };
+var encodeCallMsg = (payload) => ({
+  from: hexToBase64(payload.from),
+  to: hexToBase64(payload.to),
+  data: hexToBase64(payload.data)
+});
 var EVM_DEFAULT_REPORT_ENCODER = {
   encoderName: "evm",
   signingAlgo: "ecdsa",
@@ -16058,6 +16634,8 @@ var sendErrorResponse = (error) => {
   }
   hostBindings.sendResponse(payload);
 };
+var zeroAddress = "0x0000000000000000000000000000000000000000";
+init_decodeFunctionResult();
 init_encodeFunctionData();
 var exports_external2 = {};
 __export(exports_external2, {
@@ -29499,6 +30077,10 @@ function date4(params) {
   return _coercedDate(ZodDate2, params);
 }
 config(en_default2());
+var ConfigSchema3 = exports_external2.object({
+  aegisGateAddress: exports_external2.string(),
+  chainName: exports_external2.string()
+});
 var VerificationPayloadSchema = exports_external2.object({
   walletAddress: exports_external2.string(),
   plaidPublicToken: exports_external2.string(),
@@ -29509,6 +30091,16 @@ var trigger = http.trigger({});
 var WORLD_APP_RP_ID_NAME = "WORLD_APP_RP_ID";
 var PLAID_CLIENT_ID_NAME = "PLAID_CLIENT_ID";
 var PLAID_SECRET_NAME = "PLAID_SECRET";
+function getEvmClient(config2) {
+  const network248 = getNetwork({
+    chainFamily: "evm",
+    chainSelectorName: config2.chainName
+  });
+  if (!network248) {
+    throw new Error(`Unknown chain name: ${config2.chainName}`);
+  }
+  return new ClientCapability(network248.chainSelector.selector);
+}
 function verifyWorldId(runtime2, confHttp, data) {
   const worldIdRpId = runtime2.getSecret({ id: WORLD_APP_RP_ID_NAME }).result();
   const worldIdReq = confHttp.sendRequest(runtime2, {
@@ -29523,7 +30115,7 @@ function verifyWorldId(runtime2, confHttp, data) {
   });
   const worldIdRes = worldIdReq.result();
   const worldIdData = decodeJson(worldIdRes.body);
-  console.log("World ID Response:", JSON.stringify(worldIdData));
+  runtime2.log(`World ID verification status: ${worldIdRes.statusCode}, success: ${worldIdData?.success}`);
   return worldIdRes.statusCode === 200 && worldIdData.success === true;
 }
 function exchangePlaidToken(runtime2, confHttp, publicToken) {
@@ -29545,9 +30137,34 @@ function exchangePlaidToken(runtime2, confHttp, publicToken) {
   });
   const plaidExchangeRes = plaidExchangeReq.result();
   const plaidExchangeData = decodeJson(plaidExchangeRes.body);
+  if (!plaidExchangeData.access_token) {
+    throw new Error("Plaid token exchange failed — no access_token returned.");
+  }
+  runtime2.log("Plaid token exchange successful.");
   return plaidExchangeData.access_token;
 }
-function verifyPlaidBalance(runtime2, confHttp, accessToken) {
+function readMinBalanceThreshold(runtime2, evmClient) {
+  const callData = encodeFunctionData({
+    abi: AegisGate,
+    functionName: "minBalanceThreshold"
+  });
+  const contractCall = evmClient.callContract(runtime2, {
+    call: encodeCallMsg({
+      from: zeroAddress,
+      to: runtime2.config.aegisGateAddress,
+      data: callData
+    }),
+    blockNumber: LAST_FINALIZED_BLOCK_NUMBER
+  }).result();
+  const threshold = decodeFunctionResult({
+    abi: AegisGate,
+    functionName: "minBalanceThreshold",
+    data: bytesToHex(contractCall.data)
+  });
+  runtime2.log(`On-chain minBalanceThreshold: ${threshold}`);
+  return threshold;
+}
+function verifyPlaidBalance(runtime2, confHttp, accessToken, minThresholdCents) {
   const plaidClientId = runtime2.getSecret({ id: PLAID_CLIENT_ID_NAME }).result();
   const plaidSecret = runtime2.getSecret({ id: PLAID_SECRET_NAME }).result();
   const plaidReq = confHttp.sendRequest(runtime2, {
@@ -29566,16 +30183,35 @@ function verifyPlaidBalance(runtime2, confHttp, accessToken) {
   });
   const plaidRes = plaidReq.result();
   const plaidData = decodeJson(plaidRes.body);
-  console.log("Plaid Balance Response Received.", JSON.stringify(plaidData));
-  runtime2.log("Plaid Balance Response Received.");
-  let totalBalance = 0;
-  if (plaidData && plaidData.accounts) {
-    totalBalance = plaidData.accounts.reduce((acc, curr) => acc + curr.balances.available, 0);
+  runtime2.log("Plaid balance response received.");
+  let totalBalanceDollars = 0;
+  if (plaidData?.accounts) {
+    totalBalanceDollars = plaidData.accounts.reduce((acc, curr) => acc + (curr.balances.available ?? 0), 0);
   }
-  return totalBalance >= 2000;
+  const totalBalanceCents = BigInt(Math.floor(totalBalanceDollars * 100));
+  const isAccredited = totalBalanceCents >= minThresholdCents;
+  runtime2.log(`Balance check: $${totalBalanceDollars} (${totalBalanceCents} cents) vs threshold ${minThresholdCents} cents → ${isAccredited ? "PASS" : "FAIL"}`);
+  return isAccredited;
 }
-function updateComplianceOnChain(runtime2, data) {
-  const nullifier = data.worldIdFullResponse?.responses?.[0]?.nullifier || "0x0";
+function extractNullifierHash(data) {
+  const fromResponsesNullifier = data.worldIdFullResponse?.responses?.[0]?.nullifier;
+  const fromResponsesHash = data.worldIdFullResponse?.responses?.[0]?.nullifier_hash;
+  const fromTopLevel = data.worldIdFullResponse?.nullifier_hash;
+  const nullifier = fromResponsesNullifier || fromResponsesHash || fromTopLevel;
+  if (!nullifier || nullifier === "0x0") {
+    throw new Error("Could not extract nullifier_hash from World ID response.");
+  }
+  return nullifier;
+}
+function updateComplianceOnChain(runtime2, evmClient, data) {
+  const nullifier = extractNullifierHash(data);
+  const attestationData = new TextEncoder().encode(JSON.stringify({
+    wallet: data.walletAddress,
+    nullifier,
+    timestamp: Math.floor(Date.now() / 1000),
+    checks: ["world_id_verified", "plaid_balance_verified"]
+  }));
+  const verificationProof = bytesToHex(attestationData);
   const callData = encodeFunctionData({
     abi: AegisGate,
     functionName: "updateCompliance",
@@ -29583,46 +30219,60 @@ function updateComplianceOnChain(runtime2, data) {
       BigInt(nullifier),
       data.walletAddress,
       true,
-      "0x",
+      verificationProof,
       BigInt(Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60)
     ]
   });
-  const network248 = getNetwork({
-    chainFamily: "evm",
-    chainSelectorName: "ethereum-testnet-sepolia",
-    isTestnet: true
-  });
-  if (!network248)
-    throw new Error("Network not found");
-  const evmClient = new ClientCapability(network248.chainSelector.selector);
   const secureReportReq = runtime2.report(prepareReportRequest(callData));
   const writeReq = evmClient.writeReport(runtime2, {
-    receiver: "0x73C68bc2635Aa369Ccb31B7a354866Ba9CA1bAbD",
+    receiver: runtime2.config.aegisGateAddress,
     report: secureReportReq.result()
   });
   writeReq.result();
+  runtime2.log(`Compliance updated on-chain for wallet ${data.walletAddress}.`);
 }
 async function initWorkflow(config2) {
   return [
-    handler(trigger, async (runtime2, payload) => {
+    handler(trigger, (runtime2, payload) => {
       const data = decodeJson(payload.input);
       const confHttp = new ClientCapability2;
+      const evmClient = getEvmClient(config2);
+      runtime2.log("=== AegisGate Compliance Verification Started ===");
+      runtime2.log(`Wallet: ${data.walletAddress}`);
+      runtime2.log("[1/4] Verifying World ID...");
       const isHuman = verifyWorldId(runtime2, confHttp, data);
-      const accessToken = exchangePlaidToken(runtime2, confHttp, data.plaidPublicToken);
-      const isAccredited = verifyPlaidBalance(runtime2, confHttp, accessToken);
-      if (isHuman && isAccredited) {
-        updateComplianceOnChain(runtime2, data);
-        return {
-          status: "Success - Transaction Mined",
-          user: data.walletAddress
-        };
+      if (!isHuman) {
+        runtime2.log("FAILED: World ID verification did not pass.");
+        return { status: "Failed - World ID Verification Failed" };
       }
-      return { status: "Failed - Compliance Criteria Not Met" };
+      runtime2.log("[1/4] World ID verified ✓");
+      runtime2.log("[2/4] Exchanging Plaid token...");
+      const accessToken = exchangePlaidToken(runtime2, confHttp, data.plaidPublicToken);
+      runtime2.log("[2/4] Plaid token exchanged ✓");
+      runtime2.log("[3/4] Reading on-chain threshold...");
+      const minThreshold = readMinBalanceThreshold(runtime2, evmClient);
+      runtime2.log("[3/4] Verifying Plaid balance...");
+      const isAccredited = verifyPlaidBalance(runtime2, confHttp, accessToken, minThreshold);
+      if (!isAccredited) {
+        runtime2.log("FAILED: Balance does not meet accreditation threshold.");
+        return { status: "Failed - Insufficient Balance" };
+      }
+      runtime2.log("[3/4] Balance verification passed ✓");
+      runtime2.log("[4/4] Writing compliance on-chain...");
+      updateComplianceOnChain(runtime2, evmClient, data);
+      runtime2.log("[4/4] Compliance updated on-chain ✓");
+      runtime2.log("=== AegisGate Compliance Verification Complete ===");
+      return {
+        status: "Success - Compliance Verified",
+        user: data.walletAddress
+      };
     })
   ];
 }
 async function main() {
-  const runner = await Runner.newRunner({ configSchema: exports_external2.object({}) });
+  const runner = await Runner.newRunner({
+    configSchema: ConfigSchema3
+  });
   runner.run(initWorkflow);
 }
 main().catch(sendErrorResponse);

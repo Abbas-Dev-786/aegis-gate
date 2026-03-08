@@ -466,4 +466,4 @@ export const AegisGate = [
     stateMutability: "view",
     type: "function",
   },
-];
+] as const;
