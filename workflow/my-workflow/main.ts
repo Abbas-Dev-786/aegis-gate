@@ -270,8 +270,7 @@ function updateComplianceOnChain(
   );
   const verificationProof = bytesToHex(attestationData);
 
-  // ABI-encode the parameters for updateCompliance(uint256,address,bool,bytes,uint256)
-  const reportData = encodeAbiParameters(
+  const innerPayload = encodeAbiParameters(
     parseAbiParameters(
       "uint256 nullifierHash, address wallet, bool isAccredited, bytes verificationProof, uint256 expirationTime",
     ),
@@ -283,6 +282,12 @@ function updateComplianceOnChain(
       BigInt(Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60),
     ],
   );
+
+  const reportData = encodeFunctionData({
+    abi: AegisGate,
+    functionName: "onReport",
+    args: [innerPayload as `0x${string}`],
+  });
 
   runtime.log(
     `Writing compliance report for wallet ${data.walletAddress}, nullifier ${nullifier.slice(0, 14)}…`,

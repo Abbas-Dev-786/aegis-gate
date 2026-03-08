@@ -30835,13 +30835,18 @@ function updateComplianceOnChain(runtime2, evmClient, evmConfig, data) {
     checks: ["world_id_verified", "plaid_balance_verified"]
   }));
   const verificationProof = bytesToHex(attestationData);
-  const reportData = encodeAbiParameters(parseAbiParameters("uint256 nullifierHash, address wallet, bool isAccredited, bytes verificationProof, uint256 expirationTime"), [
+  const innerPayload = encodeAbiParameters(parseAbiParameters("uint256 nullifierHash, address wallet, bool isAccredited, bytes verificationProof, uint256 expirationTime"), [
     BigInt(nullifier),
     data.walletAddress,
     true,
     verificationProof,
     BigInt(Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60)
   ]);
+  const reportData = encodeFunctionData({
+    abi: AegisGate,
+    functionName: "onReport",
+    args: [innerPayload]
+  });
   runtime2.log(`Writing compliance report for wallet ${data.walletAddress}, nullifier ${nullifier.slice(0, 14)}…`);
   const reportResponse = runtime2.report({
     encodedPayload: hexToBase64(reportData),
