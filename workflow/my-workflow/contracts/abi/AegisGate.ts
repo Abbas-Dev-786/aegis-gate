@@ -6,6 +6,11 @@ export const AegisGate = [
         name: "_worldIdContract",
         type: "address",
       },
+      {
+        internalType: "address",
+        name: "_forwarder",
+        type: "address",
+      },
     ],
     stateMutability: "nonpayable",
     type: "constructor",
@@ -70,6 +75,19 @@ export const AegisGate = [
       },
     ],
     name: "ComplianceVerified",
+    type: "event",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      {
+        indexed: true,
+        internalType: "address",
+        name: "newForwarder",
+        type: "address",
+      },
+    ],
+    name: "ForwarderUpdated",
     type: "event",
   },
   {
@@ -215,6 +233,19 @@ export const AegisGate = [
     type: "function",
   },
   {
+    inputs: [],
+    name: "forwarder",
+    outputs: [
+      {
+        internalType: "address",
+        name: "",
+        type: "address",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
     inputs: [
       {
         internalType: "address",
@@ -352,6 +383,19 @@ export const AegisGate = [
   {
     inputs: [
       {
+        internalType: "bytes",
+        name: "report",
+        type: "bytes",
+      },
+    ],
+    name: "onReport",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
         internalType: "uint256",
         name: "nullifierHash",
         type: "uint256",
@@ -371,6 +415,19 @@ export const AegisGate = [
       },
     ],
     name: "revokeProtocol",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "address",
+        name: "_forwarder",
+        type: "address",
+      },
+    ],
+    name: "setForwarder",
     outputs: [],
     stateMutability: "nonpayable",
     type: "function",

@@ -2598,6 +2598,11 @@ var AegisGate = [
         internalType: "address",
         name: "_worldIdContract",
         type: "address"
+      },
+      {
+        internalType: "address",
+        name: "_forwarder",
+        type: "address"
       }
     ],
     stateMutability: "nonpayable",
@@ -2663,6 +2668,19 @@ var AegisGate = [
       }
     ],
     name: "ComplianceVerified",
+    type: "event"
+  },
+  {
+    anonymous: false,
+    inputs: [
+      {
+        indexed: true,
+        internalType: "address",
+        name: "newForwarder",
+        type: "address"
+      }
+    ],
+    name: "ForwarderUpdated",
     type: "event"
   },
   {
@@ -2808,6 +2826,19 @@ var AegisGate = [
     type: "function"
   },
   {
+    inputs: [],
+    name: "forwarder",
+    outputs: [
+      {
+        internalType: "address",
+        name: "",
+        type: "address"
+      }
+    ],
+    stateMutability: "view",
+    type: "function"
+  },
+  {
     inputs: [
       {
         internalType: "address",
@@ -2945,6 +2976,19 @@ var AegisGate = [
   {
     inputs: [
       {
+        internalType: "bytes",
+        name: "report",
+        type: "bytes"
+      }
+    ],
+    name: "onReport",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function"
+  },
+  {
+    inputs: [
+      {
         internalType: "uint256",
         name: "nullifierHash",
         type: "uint256"
@@ -2964,6 +3008,19 @@ var AegisGate = [
       }
     ],
     name: "revokeProtocol",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function"
+  },
+  {
+    inputs: [
+      {
+        internalType: "address",
+        name: "_forwarder",
+        type: "address"
+      }
+    ],
+    name: "setForwarder",
     outputs: [],
     stateMutability: "nonpayable",
     type: "function"
@@ -30720,7 +30777,7 @@ function readMinBalanceThreshold(runtime2, evmClient, evmConfig) {
       to: evmConfig.aegisGateAddress,
       data: callData
     }),
-    blockNumber: LAST_FINALIZED_BLOCK_NUMBER
+    blockNumber: LATEST_BLOCK_NUMBER
   }).result();
   const threshold = decodeFunctionResult({
     abi: AegisGate,

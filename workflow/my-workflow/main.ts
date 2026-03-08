@@ -10,7 +10,7 @@ import {
   encodeCallMsg,
   bytesToHex,
   hexToBase64,
-  LAST_FINALIZED_BLOCK_NUMBER,
+  LATEST_BLOCK_NUMBER,
   type Runtime,
   type HTTPPayload,
 } from "@chainlink/cre-sdk";
@@ -156,7 +156,7 @@ function readMinBalanceThreshold(
         to: evmConfig.aegisGateAddress as `0x${string}`,
         data: callData,
       }),
-      blockNumber: LAST_FINALIZED_BLOCK_NUMBER,
+      blockNumber: LATEST_BLOCK_NUMBER,
     })
     .result();
 

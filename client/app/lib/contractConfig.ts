@@ -2,7 +2,7 @@ import { ethers } from "ethers";
 
 // AegisGate deployed contract address on Sepolia
 export const AEGISGATE_CONTRACT_ADDRESS =
-  "0x73C68bc2635Aa369Ccb31B7a354866Ba9CA1bAbD";
+  "0x5D934Ed328963DF0CB0b69d986c604e9BcC11cfE";
 
 // Sepolia RPC (public endpoint)
 export const SEPOLIA_RPC_URL =
@@ -15,6 +15,11 @@ export const AEGISGATE_ABI = [
       {
         internalType: "address",
         name: "_worldIdContract",
+        type: "address",
+      },
+      {
+        internalType: "address",
+        name: "_forwarder",
         type: "address",
       },
     ],
@@ -81,6 +86,19 @@ export const AEGISGATE_ABI = [
       },
     ],
     name: "ComplianceVerified",
+    type: "event",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      {
+        indexed: true,
+        internalType: "address",
+        name: "newForwarder",
+        type: "address",
+      },
+    ],
+    name: "ForwarderUpdated",
     type: "event",
   },
   {
@@ -226,6 +244,19 @@ export const AEGISGATE_ABI = [
     type: "function",
   },
   {
+    inputs: [],
+    name: "forwarder",
+    outputs: [
+      {
+        internalType: "address",
+        name: "",
+        type: "address",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
     inputs: [
       {
         internalType: "address",
@@ -363,6 +394,19 @@ export const AEGISGATE_ABI = [
   {
     inputs: [
       {
+        internalType: "bytes",
+        name: "report",
+        type: "bytes",
+      },
+    ],
+    name: "onReport",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
         internalType: "uint256",
         name: "nullifierHash",
         type: "uint256",
@@ -382,6 +426,19 @@ export const AEGISGATE_ABI = [
       },
     ],
     name: "revokeProtocol",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "address",
+        name: "_forwarder",
+        type: "address",
+      },
+    ],
+    name: "setForwarder",
     outputs: [],
     stateMutability: "nonpayable",
     type: "function",

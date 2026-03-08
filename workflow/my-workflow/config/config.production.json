@@ -1,7 +1,7 @@
 {
   "evms": [
     {
-      "aegisGateAddress": "0x73C68bc2635Aa369Ccb31B7a354866Ba9CA1bAbD",
+      "aegisGateAddress": "0x5D934Ed328963DF0CB0b69d986c604e9BcC11cfE",
       "chainName": "ethereum-testnet-sepolia",
       "gasLimit": "500000"
     }

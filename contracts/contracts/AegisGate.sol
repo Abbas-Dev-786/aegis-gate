@@ -14,6 +14,7 @@ pragma solidity ^0.8.0;
  * - Compliance status tracking without raw data exposure
  * - Institutional DeFi access control
  * - Proof verification for TEE attestations
+ * - onReport() for Chainlink CRE Forwarder integration
  */
 
 interface IWorldID {
@@ -37,6 +38,9 @@ contract AegisGate {
 
     /// @dev Minimum balance threshold (in cents, e.g., 100000 = $1000)
     uint256 public minBalanceThreshold = 100000;
+
+    /// @dev Chainlink CRE Forwarder address (calls onReport after writeReport)
+    address public forwarder;
 
     /// @dev Mapping of World ID nullifier hash to compliance status
     mapping(uint256 => ComplianceRecord) public complianceRecords;
@@ -68,6 +72,7 @@ contract AegisGate {
     event ProtocolApproved(address indexed protocol);
     event ProtocolRevoked(address indexed protocol);
     event ThresholdUpdated(uint256 newThreshold);
+    event ForwarderUpdated(address indexed newForwarder);
 
     // ============ Data Structures ============
 
@@ -86,6 +91,11 @@ contract AegisGate {
         _;
     }
 
+    modifier onlyForwarder() {
+        require(msg.sender == forwarder, "Only CRE Forwarder can call onReport");
+        _;
+    }
+
     modifier onlyApprovedProtocol() {
         require(
             approvedProtocols[msg.sender],
@@ -96,19 +106,35 @@ contract AegisGate {
 
     // ============ Constructor ============
 
-    constructor(address _worldIdContract) {
+    constructor(address _worldIdContract, address _forwarder) {
         admin = msg.sender;
         worldIdContract = IWorldID(_worldIdContract);
+        forwarder = _forwarder;
     }
 
     // ============ Core Functions ============
 
     /**
-     * @dev Update compliance status for a user
-     * 
-     * This function is called by the Chainlink CRE after verification.
-     * It stores the compliance status and proof on-chain without exposing
-     * the underlying financial data.
+     * @notice Receives and processes signed reports from Chainlink CRE (via Forwarder).
+     * @dev The Forwarder calls this after verifying the signed report from the CRE DON.
+     *      The report is ABI-encoded as:
+     *        (uint256 nullifierHash, address wallet, bool isAccredited, bytes verificationProof, uint256 expirationTime)
+     * @param report ABI-encoded compliance data from the CRE workflow
+     */
+    function onReport(bytes calldata report) external onlyForwarder {
+        (
+            uint256 nullifierHash,
+            address wallet,
+            bool isAccredited,
+            bytes memory verificationProof,
+            uint256 expirationTime
+        ) = abi.decode(report, (uint256, address, bool, bytes, uint256));
+
+        _updateCompliance(nullifierHash, wallet, isAccredited, verificationProof, expirationTime);
+    }
+
+    /**
+     * @dev Update compliance status for a user (admin-only, for manual overrides)
      * 
      * @param nullifierHash World ID nullifier hash
      * @param wallet User's wallet address
@@ -120,13 +146,26 @@ contract AegisGate {
         uint256 nullifierHash,
         address wallet,
         bool isAccredited,
-        bytes calldata verificationProof, // Can be the TEE report signature for auditability
+        bytes calldata verificationProof,
         uint256 expirationTime
     ) external onlyAdmin {
+        _updateCompliance(nullifierHash, wallet, isAccredited, verificationProof, expirationTime);
+    }
+
+    /**
+     * @dev Internal logic to store compliance data after verification.
+     */
+    function _updateCompliance(
+        uint256 nullifierHash,
+        address wallet,
+        bool isAccredited,
+        bytes memory verificationProof,
+        uint256 expirationTime
+    ) internal {
         require(wallet != address(0), "Invalid wallet address");
         require(verificationProof.length > 0, "Proof cannot be empty");
         
-        // 🚨 FIX: Prevent one human from verifying multiple wallets
+        // Prevent one human from verifying multiple wallets
         require(
             nullifierToWallet[nullifierHash] == address(0) || nullifierToWallet[nullifierHash] == wallet,
             "AegisGate: World ID already linked to another wallet"
@@ -138,7 +177,7 @@ contract AegisGate {
             verificationProof: verificationProof,
             verifiedAt: block.timestamp,
             expiresAt: expirationTime,
-            verifier: msg.sender // This will be the CRE DON address
+            verifier: msg.sender
         });
 
         // Create bidirectional mapping
@@ -156,9 +195,6 @@ contract AegisGate {
 
     /**
      * @dev Check if a wallet is compliant
-     * 
-     * @param wallet User's wallet address
-     * @return isAccredited True if user is accredited and verification hasn't expired
      */
     function isCompliant(address wallet) external view returns (bool) {
         uint256 nullifierHash = walletToNullifier[wallet];
@@ -170,9 +206,6 @@ contract AegisGate {
 
     /**
      * @dev Check if a nullifier hash is compliant
-     * 
-     * @param nullifierHash World ID nullifier hash
-     * @return isAccredited True if user is accredited and verification hasn't expired
      */
     function isCompliantByNullifier(uint256 nullifierHash)
         external
@@ -185,9 +218,6 @@ contract AegisGate {
 
     /**
      * @dev Get compliance details for a wallet
-     * 
-     * @param wallet User's wallet address
-     * @return record The compliance record
      */
     function getComplianceRecord(address wallet)
         external
@@ -200,8 +230,6 @@ contract AegisGate {
 
     /**
      * @dev Revoke compliance status
-     * 
-     * @param nullifierHash World ID nullifier hash to revoke
      */
     function revokeCompliance(uint256 nullifierHash) external onlyAdmin {
         address wallet = nullifierToWallet[nullifierHash];
@@ -217,8 +245,16 @@ contract AegisGate {
     // ============ Admin Functions ============
 
     /**
+     * @dev Update the Chainlink CRE Forwarder address
+     */
+    function setForwarder(address _forwarder) external onlyAdmin {
+        require(_forwarder != address(0), "Invalid forwarder");
+        forwarder = _forwarder;
+        emit ForwarderUpdated(_forwarder);
+    }
+
+    /**
      * @dev Update minimum balance threshold
-     * 
      * @param newThreshold New threshold in cents
      */
     function setMinBalanceThreshold(uint256 newThreshold) external onlyAdmin {
@@ -228,8 +264,6 @@ contract AegisGate {
 
     /**
      * @dev Approve a DeFi protocol to check compliance
-     * 
-     * @param protocol Protocol address
      */
     function approveProtocol(address protocol) external onlyAdmin {
         require(protocol != address(0), "Invalid protocol address");
@@ -239,8 +273,6 @@ contract AegisGate {
 
     /**
      * @dev Revoke protocol approval
-     * 
-     * @param protocol Protocol address
      */
     function revokeProtocol(address protocol) external onlyAdmin {
         approvedProtocols[protocol] = false;
@@ -249,8 +281,6 @@ contract AegisGate {
 
     /**
      * @dev Transfer admin rights
-     * 
-     * @param newAdmin New admin address
      */
     function transferAdmin(address newAdmin) external onlyAdmin {
         require(newAdmin != address(0), "Invalid admin address");
@@ -261,9 +291,6 @@ contract AegisGate {
 
     /**
      * @dev Check if a user is compliant (called by approved protocols)
-     * 
-     * @param wallet User's wallet address
-     * @return isAccredited True if user is accredited
      */
     function checkCompliance(address wallet)
         external
@@ -280,9 +307,6 @@ contract AegisGate {
 
     /**
      * @dev Get wallet address from nullifier hash
-     * 
-     * @param nullifierHash World ID nullifier hash
-     * @return wallet Associated wallet address
      */
     function getWalletFromNullifier(uint256 nullifierHash)
         external
