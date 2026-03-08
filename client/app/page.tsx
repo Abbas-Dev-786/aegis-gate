@@ -56,15 +56,8 @@ export default function AegisGateFrontend() {
   }, []);
 
   const handleWorldIdSuccess = (response: any) => {
-    const [result] = response.responses;
-    console.log("World ID Success:", result);
-    setWorldIdData({
-      proof: result.proof,
-      nullifier_hash: result.nullifier,
-      merkle_root: result.merkle_root,
-      verification_level: result.identifier,
-      nonce: response.nonce,
-    });
+    // Save the entire exact raw response to pass to Simulation!
+    setWorldIdData(response);
     setStatus("World ID Verified! Human confirmed.");
   };
 
@@ -130,13 +123,10 @@ export default function AegisGateFrontend() {
       return;
     }
 
+    // worldIdData is now the EXACT unaltered IDKit Response
     const payload = {
       walletAddress: walletAddress,
-      worldIdProof: worldIdData.proof,
-      worldIdNullifier: worldIdData.nullifier_hash,
-      worldIdMerkleRoot: worldIdData.merkle_root,
-      worldIdVerificationLevel: worldIdData.verification_level,
-      worldIdNonce: worldIdData.nonce,
+      worldIdFullResponse: worldIdData,
       plaidPublicToken: plaidToken,
     };
 

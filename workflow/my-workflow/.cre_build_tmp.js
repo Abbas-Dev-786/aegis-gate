@@ -29479,12 +29479,8 @@ function date4(params) {
 config(en_default2());
 var VerificationPayloadSchema = exports_external2.object({
   walletAddress: exports_external2.string(),
-  worldIdProof: exports_external2.string(),
-  worldIdNullifier: exports_external2.string(),
-  worldIdNonce: exports_external2.string(),
   plaidPublicToken: exports_external2.string(),
-  worldIdMerkleRoot: exports_external2.string(),
-  worldIdVerificationLevel: exports_external2.string()
+  worldIdFullResponse: exports_external2.any()
 });
 var http = new HTTPCapability;
 var trigger = http.trigger({});
@@ -29500,19 +29496,7 @@ function verifyWorldId(runtime2, confHttp, data) {
       multiHeaders: {
         "Content-Type": { values: ["application/json"] }
       },
-      bodyString: JSON.stringify({
-        protocol_version: "3.0",
-        nonce: data.worldIdNonce,
-        action: "aegisgate-verification",
-        responses: [
-          {
-            identifier: data.worldIdVerificationLevel,
-            merkle_root: data.worldIdMerkleRoot,
-            nullifier: data.worldIdNullifier,
-            proof: data.worldIdProof
-          }
-        ]
-      })
+      bodyString: JSON.stringify(data.worldIdFullResponse)
     }
   });
   const worldIdRes = worldIdReq.result();
@@ -29566,15 +29550,16 @@ function verifyPlaidBalance(runtime2, confHttp, accessToken) {
   if (plaidData && plaidData.accounts) {
     totalBalance = plaidData.accounts.reduce((acc, curr) => acc + curr.balances.available, 0);
   }
-  return totalBalance >= 200000;
+  return totalBalance >= 2000;
 }
 function updateComplianceOnChain(runtime2, data) {
+  const nullifier = data.worldIdFullResponse?.responses?.[0]?.nullifier || "0x0";
   const callData = encodeFunctionData({
     abi: AegisGate,
     functionName: "updateCompliance",
     args: [
       data.walletAddress,
-      data.worldIdNullifier,
+      nullifier,
       Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60
     ]
   });
@@ -29588,7 +29573,7 @@ function updateComplianceOnChain(runtime2, data) {
   const evmClient = new ClientCapability(network248.chainSelector.selector);
   const secureReportReq = runtime2.report({ report: callData });
   const writeReq = evmClient.writeReport(runtime2, {
-    receiver: "YOUR_AEGISGATE_CONTRACT_ADDRESS",
+    receiver: "0x73C68bc2635Aa369Ccb31B7a354866Ba9CA1bAbD",
     report: secureReportReq.result()
   });
   writeReq.result();

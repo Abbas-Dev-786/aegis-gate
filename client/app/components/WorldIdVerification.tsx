@@ -27,16 +27,10 @@ export function WorldIdVerification({
   handleWorldIdSuccess,
 }: WorldIdVerificationProps) {
   const verifyProof = async (result: any) => {
-    const response = await fetch("/api/world-id/verify", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(result),
-    });
-    if (!response.ok) {
-      throw new Error("Verification failed on the backend");
-    }
+    // We intentionally DO NOT verify the proof on the Next.js backend.
+    // The Chainlink CRE Enclave is responsible for the actual cryptographic
+    // verification. This prevents "invalid_proof" double-spend errors!
+    return Promise.resolve();
   };
   return (
     <div>

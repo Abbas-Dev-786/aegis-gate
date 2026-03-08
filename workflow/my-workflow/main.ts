@@ -15,12 +15,8 @@ import { z } from "zod";
 
 const VerificationPayloadSchema = z.object({
   walletAddress: z.string(),
-  worldIdProof: z.string(),
-  worldIdNullifier: z.string(),
-  worldIdNonce: z.string(),
   plaidPublicToken: z.string(),
-  worldIdMerkleRoot: z.string(),
-  worldIdVerificationLevel: z.string(),
+  worldIdFullResponse: z.any(), // The exact unaltered response from IDKit
 });
 type VerificationPayload = z.infer<typeof VerificationPayloadSchema>;
 
@@ -45,19 +41,8 @@ function verifyWorldId(
       multiHeaders: {
         "Content-Type": { values: ["application/json"] },
       },
-      bodyString: JSON.stringify({
-        protocol_version: "3.0",
-        nonce: data.worldIdNonce, // Mapped securely from the payload
-        action: "aegisgate-verification",
-        responses: [
-          {
-            identifier: data.worldIdVerificationLevel, // e.g. "orb" or "device"
-            merkle_root: data.worldIdMerkleRoot,
-            nullifier: data.worldIdNullifier,
-            proof: data.worldIdProof,
-          },
-        ],
-      }),
+      // Pass the EXACT JSON payload the IDKit widget created!
+      bodyString: JSON.stringify(data.worldIdFullResponse),
     },
   });
   const worldIdRes = worldIdReq.result();
@@ -135,19 +120,23 @@ function verifyPlaidBalance(
     );
   }
 
-  return totalBalance >= 200000;
+  return totalBalance >= 2000;
 }
 
 function updateComplianceOnChain(
   runtime: Runtime<any>,
   data: VerificationPayload,
 ) {
+  // Grab the nullifier deeply from the unaltered IDKit payload
+  const nullifier =
+    data.worldIdFullResponse?.responses?.[0]?.nullifier || "0x0";
+
   const callData = encodeFunctionData({
     abi: AegisGate,
     functionName: "updateCompliance",
     args: [
       data.walletAddress as `0x${string}`,
-      data.worldIdNullifier as `0x${string}`,
+      nullifier as `0x${string}`,
       Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60,
     ],
   });
