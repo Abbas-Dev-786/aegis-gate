@@ -27,14 +27,20 @@ type VerificationPayload = z.infer<typeof VerificationPayloadSchema>;
 const http = new HTTPCapability();
 const trigger = http.trigger({});
 
+const WORLD_APP_RP_ID_NAME = "WORLD_APP_RP_ID";
+const PLAID_CLIENT_ID_NAME = "PLAID_CLIENT_ID";
+const PLAID_SECRET_NAME = "PLAID_SECRET";
+
 function verifyWorldId(
   runtime: Runtime<any>,
   confHttp: ConfidentialHTTPClient,
   data: VerificationPayload,
 ): boolean {
+  const worldIdRpId = runtime.getSecret({ id: WORLD_APP_RP_ID_NAME }).result();
+
   const worldIdReq = confHttp.sendRequest(runtime, {
     request: {
-      url: "https://developer.world.org/api/v4/verify/{{.WORLD_APP_RP_ID}}",
+      url: `https://developer.world.org/api/v4/verify/${worldIdRpId.value}`,
       method: "POST",
       multiHeaders: {
         "Content-Type": { values: ["application/json"] },
@@ -53,7 +59,6 @@ function verifyWorldId(
         ],
       }),
     },
-    vaultDonSecrets: [{ key: "WORLD_APP_RP_ID", owner: "" }],
   });
   const worldIdRes = worldIdReq.result();
   const worldIdData = decodeJson(worldIdRes.body) as any;
@@ -68,6 +73,11 @@ function exchangePlaidToken(
   confHttp: ConfidentialHTTPClient,
   publicToken: string,
 ): string {
+  const plaidClientId = runtime
+    .getSecret({ id: PLAID_CLIENT_ID_NAME })
+    .result();
+  const plaidSecret = runtime.getSecret({ id: PLAID_SECRET_NAME }).result();
+
   const plaidExchangeReq = confHttp.sendRequest(runtime, {
     request: {
       url: "https://sandbox.plaid.com/item/public_token/exchange",
@@ -76,15 +86,11 @@ function exchangePlaidToken(
         "Content-Type": { values: ["application/json"] },
       },
       bodyString: JSON.stringify({
-        client_id: "{{.PLAID_CLIENT_ID}}",
-        secret: "{{.PLAID_SECRET}}",
+        client_id: plaidClientId.value,
+        secret: plaidSecret.value,
         public_token: publicToken,
       }),
     },
-    vaultDonSecrets: [
-      { key: "PLAID_CLIENT_ID", owner: "" },
-      { key: "PLAID_SECRET", owner: "" },
-    ],
   });
   const plaidExchangeRes = plaidExchangeReq.result();
   const plaidExchangeData = decodeJson(plaidExchangeRes.body) as any;
@@ -96,6 +102,11 @@ function verifyPlaidBalance(
   confHttp: ConfidentialHTTPClient,
   accessToken: string,
 ): boolean {
+  const plaidClientId = runtime
+    .getSecret({ id: PLAID_CLIENT_ID_NAME })
+    .result();
+  const plaidSecret = runtime.getSecret({ id: PLAID_SECRET_NAME }).result();
+
   const plaidReq = confHttp.sendRequest(runtime, {
     request: {
       url: "https://sandbox.plaid.com/accounts/balance/get",
@@ -104,19 +115,16 @@ function verifyPlaidBalance(
         "Content-Type": { values: ["application/json"] },
       },
       bodyString: JSON.stringify({
-        client_id: "{{.PLAID_CLIENT_ID}}",
-        secret: "{{.PLAID_SECRET}}",
+        client_id: plaidClientId.value,
+        secret: plaidSecret.value,
         access_token: accessToken,
       }),
     },
-    vaultDonSecrets: [
-      { key: "PLAID_CLIENT_ID", owner: "" },
-      { key: "PLAID_SECRET", owner: "" },
-    ],
   });
   const plaidRes = plaidReq.result();
   const plaidData = decodeJson(plaidRes.body) as any;
 
+  console.log("Plaid Balance Response Received.", JSON.stringify(plaidData));
   runtime.log("Plaid Balance Response Received.");
 
   let totalBalance = 0;
