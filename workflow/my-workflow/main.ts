@@ -7,6 +7,7 @@ import {
   EVMClient,
   decodeJson,
   getNetwork,
+  prepareReportRequest,
   type Runtime,
   type HTTPPayload,
 } from "@chainlink/cre-sdk";
@@ -135,9 +136,11 @@ function updateComplianceOnChain(
     abi: AegisGate,
     functionName: "updateCompliance",
     args: [
-      data.walletAddress as `0x${string}`,
-      nullifier as `0x${string}`,
-      Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60,
+      BigInt(nullifier), // uint256 nullifierHash
+      data.walletAddress as `0x${string}`, // address wallet
+      true, // bool isAccredited
+      "0x", // bytes verificationProof (empty for now, or use TEE report later)
+      BigInt(Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60), // uint256 expirationTime
     ],
   });
 
@@ -150,7 +153,7 @@ function updateComplianceOnChain(
 
   const evmClient = new EVMClient(network.chainSelector.selector);
 
-  const secureReportReq = runtime.report({ report: callData } as any);
+  const secureReportReq = runtime.report(prepareReportRequest(callData));
 
   const writeReq = evmClient.writeReport(runtime, {
     receiver: "0x73C68bc2635Aa369Ccb31B7a354866Ba9CA1bAbD",

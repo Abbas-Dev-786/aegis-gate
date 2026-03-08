@@ -5777,6 +5777,19 @@ var hexToBytes = (hexStr) => {
   }
   return bytes;
 };
+var hexToBase64 = (hex) => {
+  const cleanHex = hex.startsWith("0x") ? hex.slice(2) : hex;
+  if (cleanHex.length === 0) {
+    return "";
+  }
+  if (cleanHex.length % 2 !== 0) {
+    throw new Error(`Hex string must have an even number of characters: ${hex}`);
+  }
+  if (!/^[0-9a-fA-F]*$/.test(cleanHex)) {
+    throw new Error(`Invalid hex string: ${hex}`);
+  }
+  return Buffer.from(cleanHex, "hex").toString("base64");
+};
 function createWriteCreReportRequest(input) {
   return {
     receiver: hexToBytes(input.receiver),
@@ -7503,6 +7516,15 @@ var LATEST_BLOCK_NUMBER = {
   absVal: Buffer.from([2]).toString("base64"),
   sign: "-1"
 };
+var EVM_DEFAULT_REPORT_ENCODER = {
+  encoderName: "evm",
+  signingAlgo: "ecdsa",
+  hashingAlgo: "keccak256"
+};
+var prepareReportRequest = (hexEncodedPayload, reportEncoder = EVM_DEFAULT_REPORT_ENCODER) => ({
+  encodedPayload: hexToBase64(hexEncodedPayload),
+  ...reportEncoder
+});
 var decodeJson = (input) => {
   const decoder = new TextDecoder("utf-8");
   const textBody = decoder.decode(input);
@@ -29558,9 +29580,11 @@ function updateComplianceOnChain(runtime2, data) {
     abi: AegisGate,
     functionName: "updateCompliance",
     args: [
+      BigInt(nullifier),
       data.walletAddress,
-      nullifier,
-      Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60
+      true,
+      "0x",
+      BigInt(Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60)
     ]
   });
   const network248 = getNetwork({
@@ -29571,7 +29595,7 @@ function updateComplianceOnChain(runtime2, data) {
   if (!network248)
     throw new Error("Network not found");
   const evmClient = new ClientCapability(network248.chainSelector.selector);
-  const secureReportReq = runtime2.report({ report: callData });
+  const secureReportReq = runtime2.report(prepareReportRequest(callData));
   const writeReq = evmClient.writeReport(runtime2, {
     receiver: "0x73C68bc2635Aa369Ccb31B7a354866Ba9CA1bAbD",
     report: secureReportReq.result()
