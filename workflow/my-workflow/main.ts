@@ -164,7 +164,7 @@ function updateComplianceOnChain(
   const secureReportReq = runtime.report({ report: callData } as any);
 
   const writeReq = evmClient.writeReport(runtime, {
-    receiver: "YOUR_AEGISGATE_CONTRACT_ADDRESS",
+    receiver: "0x73C68bc2635Aa369Ccb31B7a354866Ba9CA1bAbD",
     report: secureReportReq.result(),
   });
 
